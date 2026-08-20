@@ -280,7 +280,7 @@ namespace LJTrainer.UI
                 Raylib.DrawLine(x + 1, y + 1, x + width - 2, y + 1, new Color((byte)255, (byte)255, (byte)255, (byte)(hovered ? 75 : 35)));
                 if (hovered)
                 {
-                    Raylib.DrawLine(x + 2, y + height - 1, x + width - 3, y + height - 1, new Color(NeonCyan.R, NeonCyan.G, NeonCyan.B, 180));
+                    Raylib.DrawLine(x + 2, y + height - 1, x + width - 3, y + height - 1, new Color((byte)NeonCyan.R, (byte)NeonCyan.G, (byte)NeonCyan.B, (byte)180));
                 }
             }
             else

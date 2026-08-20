@@ -1909,20 +1909,20 @@ namespace LJTrainer.UI
                         if (pt1.IsOverlap)
                         {
                             segCol = Theme.NeonRed;
-                            Raylib.DrawLineEx(sp1, sp2, 5.8f + pulseGlow * 1.5f, new Color(255, 40, 40, (byte)(70 + pulseGlow * 40)));
+                            Raylib.DrawLineEx(sp1, sp2, 5.8f + pulseGlow * 1.5f, new Color((byte)255, (byte)40, (byte)40, (byte)(70 + pulseGlow * 40)));
                             Raylib.DrawLineEx(sp1, sp2, 3.2f, Theme.NeonRed);
                             Raylib.DrawLineEx(sp1, sp2, 1.2f, new Color(255, 255, 255, 180));
                         }
                         else if (pt1.IsBadAngle)
                         {
                             segCol = Theme.NeonOrange;
-                            Raylib.DrawLineEx(sp1, sp2, 5.2f + pulseGlow * 1.2f, new Color(255, 140, 0, (byte)(65 + pulseGlow * 35)));
+                            Raylib.DrawLineEx(sp1, sp2, 5.2f + pulseGlow * 1.2f, new Color((byte)255, (byte)140, (byte)0, (byte)(65 + pulseGlow * 35)));
                             Raylib.DrawLineEx(sp1, sp2, 3.0f, Theme.NeonOrange);
                             Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 160));
                         }
                         else
                         {
-                            Raylib.DrawLineEx(sp1, sp2, 5.0f + pulseGlow * 1.5f, new Color(segCol.R, segCol.G, segCol.B, (byte)(60 + pulseGlow * 45)));
+                            Raylib.DrawLineEx(sp1, sp2, 5.0f + pulseGlow * 1.5f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)(60 + pulseGlow * 45)));
                             Raylib.DrawLineEx(sp1, sp2, 2.6f, segCol);
                             Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 140));
                         }
@@ -1945,7 +1945,7 @@ namespace LJTrainer.UI
                             int s1Y = originY - (int)(pt1.Pos.Y * pxPerUnitY);
                             Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
 
-                            Raylib.DrawCircle(s1X, s1Y, 5.0f, new Color(segCol.R, segCol.G, segCol.B, 120));
+                            Raylib.DrawCircle(s1X, s1Y, 5.0f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)120));
                             Raylib.DrawCircle(s1X, s1Y, 3.2f, segCol);
                             Raylib.DrawCircle(s1X, s1Y, 1.5f, Theme.TextWhite);
                             Theme.DrawText($"S{pt1.StrafeIndex + 1}", s1X + (pt1.StrafeIndex % 2 == 0 ? -16 : 6), s1Y - 5, 8, Theme.TextWhite);

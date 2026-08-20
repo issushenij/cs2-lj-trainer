@@ -73,8 +73,8 @@ namespace LJTrainer.UI
                 for (int i = 0; i < count; i++)
                 {
                     var p = history[i];
-                    float y = midY - Math.Clamp(p.MouseYawVelocity / maxVal, -1.0f, 1.0f) * (graphH / 2 - 10);
-                    rawWave.Add(new Vector2(graphX + i * stepX, y));
+                    float pyVal = midY - Math.Clamp(p.MouseYawVelocity / maxVal, -1.0f, 1.0f) * (graphH / 2 - 10);
+                    rawWave.Add(new Vector2(graphX + i * stepX, pyVal));
                 }
 
                 if (rawWave.Count >= 2)
