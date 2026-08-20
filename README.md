@@ -1,77 +1,139 @@
-# 🚀 CS2 LongJump & Movement Trainer (LJ Trainer)
+# CS2 LongJump & Movement Trainer
 
-> **Next-Gen Movement Analysis & Cadence Laboratory for Counter-Strike 2 (CS2) KZ / LongJump athletes.**  
-> Built with **C# (.NET 9)**, **Raylib-cs**, and integrated with real-time CS2 console parsing and **Cybershoke KZ** profile telemetry.
+Инструмент для анализа и тренировки мувмента, стрейфов и прыжков в Counter-Strike 2. Помогает разбирать ошибки в технике, следить за динамикой рекордов и тренировать ритм стрейфов.
 
----
-
-## ⚡ Features & Capabilities
-
-* **🎮 Real-Time CS2 Console Telemetry Watcher:**
-  * Instant automatic detection and parsing of all in-game jumps (`Long Jump`, `Bunnyhop`, `Multi Bunnyhop`, `Weird Jump`, `Ladder Jump`, `Countjump`, `Drop Jump`, etc.).
-  * Real-time calculation of Distance, Pre-Speed, Max Speed, Overlap (A+D key conflicts), Dead Air, Bad Angles, and Sync Efficiency.
-  * Real-time PB (Personal Best) detection and celebratory audio notifications with custom fanfare.
-
-* **🛰️ 2D Airpath & Strafe Trajectory Reconstruction:**
-  * 100% physically accurate 2D top-down flight path simulation utilizing actual Source 2 movement physics.
-  * Color-coded strafe arcs with gain/loss efficiency, overlap markers, and turn rate deviation angles.
-  * Compare current jumps with Personal Best (PB), Previous Jumps, or Lifetime Averages.
-
-* **📊 Deep Biomechanics & Analytics Dashboard:**
-  * **A vs D Hand Balance Analysis:** Real-time diagnostics of left vs. right strafe sync %, angle speed, and key overlap latency.
-  * **Interactive Metric Timeline Graphs:** Distance, Sync %, Pre-Speed, and Overlap progression curves with point inspection.
-  * **Cybershoke KZ Leaderboard & Completed Maps Browser:** Search, sort (by points, top rank, best time, attempts), and inspect completed map records.
-
-* **🎯 Cadence & Metronome Rhythm Lab:**
-  * Train muscle memory and strafe rhythm with dynamic visual metronomes, auditory cadence ticks, and customizable Strafe-per-Jump rhythms.
-
-* **🔔 System Tray & Background Audio Engine:**
-  * Minimize to Windows System Tray upon window close.
-  * Continue watching CS2 console and playing real-time sound cues while CS2 is full-screened.
+[English version below](#english-version)
 
 ---
 
-## 🛠️ Technology Stack
+## Возможности
 
-* **Language:** C# 13 / .NET 9.0 Windows
-* **Graphics Engine:** Raylib-cs (OpenGL accelerated, 144Hz+ ultra-low latency rendering)
-* **Audio Engine:** Custom procedural synth sound generator + Raylib Audio
-* **Telemetry Parser:** CS2 `conlog` stream reader with asynchronous regex parsing
-* **Web Telemetry:** WebView2 integration for automated Cybershoke KZ profile synchronization
+### Автоматический трекинг прыжков из CS2
+Программа в реальном времени читает консоль игры и выводит подробную статистику по каждому прыжку:
+* Поддержка всех основных типов: Long Jump, Bunnyhop, Multi Bunnyhop, Weird Jump, Ladder Jump, Countjump, Drop Jump и др.
+* Расчет дистанции, скорости на отрыве (Pre-Speed), максимальной скорости в воздухе, процента синхронизации, зажатий клавиш A+D (Overlap), мертвых зон (Dead Air) и потерь углов (Bad Angles).
+* Определение личных рекордов (PB) и звуковые оповещения при их обновлении.
+
+### 2D-визуализация траектории полета
+* Построение реального пути движения игрока сверху с учетом физики Source 2.
+* Разделение стрейфов по цветам, отображение эффективности набора скорости и зон зажатия двух клавиш одновременно.
+* Возможность наглядно сравнить свежий прыжок со своим рекордом (PB) или со средней траекторией.
+
+### Аналитика техники и баланс стрейфов
+* Отдельный анализ левых (A) и правых (D) стрейфов: помогает понять, в какую сторону стрейфы получаются слабее или где чаще зажимаются обе клавиши.
+* Интерактивные графики прогресса по дистанции, синхронизации и скорости.
+* История изменения рекордов и позиций в рейтинге.
+
+### Интеграция с профилем Cybershoke KZ
+* Просмотр пройденных карт KZ, времени прохождения, набранных очков и позиции в общем топе.
+* Удобный поиск и сортировка по сложности карт (Tier), очкам и времени.
+
+### Метроном и тренировка ритма (Cadence Lab)
+* Звуковой и визуальный метроном для выработки стабильного темпа и тайминга переключения клавиш A и D.
+
+### Работа в фоновом режиме
+* Приложение можно свернуть в системный трей Windows. Мониторинг консоли и звуки рекордов продолжают работать во время игры в полноэкранном режиме.
 
 ---
 
-## 🚀 Getting Started
+## Как запустить
 
-### Prerequisites
-* [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (or later)
-* Windows 10/11 x64
+### Требования
+* Windows 10 или 11 (64-bit)
+* [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) или новее
 
-### Build & Run
+### Сборка из исходников
 ```powershell
-# Clone the repository
 git clone https://github.com/issushenij/cs2-lj-trainer.git
 cd cs2-lj-trainer
-
-# Build and run the project
 dotnet run -c Release
 ```
 
 ---
 
-## ⚙️ CS2 Setup & Auto-Telemetry
+## Настройка CS2 для авто-телеметрии
 
-To enable automatic telemetry capturing in CS2, add the following launch options to CS2 in Steam:
+Чтобы программа могла автоматически считывать прыжки, включите логирование консоли в CS2.
+
+Добавьте в параметры запуска игры в Steam:
 ```text
 -condebug +con_logfile console.log
 ```
-Or in-game console:
+Или пропишите команду прямо в консоли игры:
 ```text
 con_logfile console.log
 ```
-*LJ Trainer automatically monitors your `console.log` in real time and updates your statistics on every jump.*
 
 ---
 
-## 📜 License
+<a name="english-version"></a>
+# English Version
+
+# CS2 LongJump & Movement Trainer
+
+A dedicated desktop utility for analyzing and practicing movement, strafes, and jumps in Counter-Strike 2. Designed to help players diagnose mechanical mistakes, track progression, and build muscle memory for consistent strafe rhythm.
+
+---
+
+## Key Features
+
+### Real-Time In-Game Jump Tracking
+Automatically monitors your CS2 console log and breaks down every jump:
+* Supports all jump modes: Long Jump, Bunnyhop, Multi Bunnyhop, Weird Jump, Ladder Jump, Countjump, Drop Jump, and more.
+* Captures Distance, Pre-Speed, Max Speed, Sync %, Key Overlap (A+D conflict), Dead Air, and Bad Angles.
+* Instant PB detection with custom audio fanfare.
+
+### 2D Flight Trajectory Visualizer
+* Reconstructs the exact top-down airpath based on Source 2 movement physics.
+* Color-coded strafe segments highlighting speed gains, losses, and overlap zones.
+* Direct side-by-side comparison between your latest jump, personal best, and session averages.
+
+### Biomechanics & Hand Balance Diagnostics
+* Compares left (A) vs. right (D) strafe metrics to spot hand imbalance, sync drops, or key hold latency.
+* Interactive progression timeline graphs for Distance, Sync, Pre-Speed, and Overlap.
+* PB milestone timeline tracking your personal improvement history.
+
+### Cybershoke KZ Integration
+* Displays completed KZ maps, completion times, earned points, and leaderboard standings.
+* Built-in search and filtering by difficulty tiers, rank, and score.
+
+### Cadence Rhythm Lab
+* Visual and audio metronome tailored for training muscle memory and steady strafe switching intervals.
+
+### Background System Tray Mode
+* Minimizes directly to the Windows System Tray on close. Continues parsing CS2 jumps and playing audio cues while the game is running.
+
+---
+
+## Getting Started
+
+### Requirements
+* Windows 10 or 11 (64-bit)
+* [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) or newer
+
+### Building from Source
+```powershell
+git clone https://github.com/issushenij/cs2-lj-trainer.git
+cd cs2-lj-trainer
+dotnet run -c Release
+```
+
+---
+
+## CS2 Launch Setup
+
+To enable real-time jump detection, enable console logging in CS2.
+
+Add this to your Steam launch options for CS2:
+```text
+-condebug +con_logfile console.log
+```
+Or type directly into the CS2 console:
+```text
+con_logfile console.log
+```
+
+---
+
+## License
 MIT License. Created by [issushenij](https://github.com/issushenij).
