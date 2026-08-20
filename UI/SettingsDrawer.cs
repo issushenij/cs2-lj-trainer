@@ -137,6 +137,12 @@ namespace LJTrainer.UI
             int s6H = DrawTraySection(contentX, curY, cardW, scale, cfg);
             curY += s6H + gap;
 
+            // =========================================================================
+            // 7. SECTION: UPDATES & VERSION
+            // =========================================================================
+            int s7H = DrawUpdateSection(contentX, curY, cardW, scale, cfg);
+            curY += s7H + gap;
+
             Raylib.EndScissorMode();
 
             // Total height calculation & Scroll clamping
@@ -550,6 +556,86 @@ namespace LJTrainer.UI
 
             curY += (int)(34 * scale);
             Theme.DrawWrappedText("• В свёрнутом состоянии в трее звуки рекордов CS2 и парсинг прыжков продолжают работать в фоне!\n• Закрытие программы на клавишу Escape отключено (закрыть можно только на [X] или через меню трея).", innerX, curY, innerW, 10, 2, Theme.TextMuted);
+
+            return h;
+        }
+
+        // =========================================================================
+        // SECTION 7: UPDATES & IN-APP UPGRADE
+        // =========================================================================
+        private int DrawUpdateSection(int x, int y, int width, float scale, AppConfig cfg)
+        {
+            int h = (int)(155 * scale);
+            DrawSectionCard(x, y, width, h, "7. ОБНОВЛЕНИЯ И ВЕРСИЯ ПРОГРАММЫ", Theme.NeonCyan);
+
+            int innerX = x + 18;
+            int innerW = width - 36;
+            int curY = y + (int)(40 * scale);
+            int btnH = (int)(28 * scale);
+            int gap = 8;
+
+            // Row 1: Current Version & Status
+            string verInfo = $"Текущая версия: {UpdateManager.CurrentVersion}";
+            if (UpdateManager.UpdateAvailable)
+            {
+                verInfo += $"  ➔  ДОСТУПНА: {UpdateManager.LatestRelease?.TagName ?? "NEW"}";
+            }
+            Theme.DrawText(verInfo, innerX, curY + 4, 12, UpdateManager.UpdateAvailable ? Theme.NeonGold : Theme.NeonCyan);
+            curY += (int)(26 * scale);
+
+            // Row 2: Auto Check Toggle Switch
+            string autoCheckLabel = cfg.AutoCheckUpdates 
+                ? "Проверять обновления при запуске: ВКЛЮЧЕНО" 
+                : "Проверять обновления при запуске: ВЫКЛЮЧЕНО";
+
+            int halfW = (innerW - gap) / 2;
+            if (Theme.DrawButton(innerX, curY, halfW, btnH, autoCheckLabel, cfg.AutoCheckUpdates, 11))
+            {
+                cfg.AutoCheckUpdates = !cfg.AutoCheckUpdates;
+                AppConfig.Save();
+            }
+
+            // Row 2 Right: Check / Update Button
+            int actBtnX = innerX + halfW + gap;
+            if (UpdateManager.IsChecking || UpdateManager.IsDownloading)
+            {
+                Raylib.DrawRectangle(actBtnX, curY, halfW, btnH, new Color(30, 25, 10, 220));
+                Raylib.DrawRectangleLines(actBtnX, curY, halfW, btnH, Theme.NeonGold);
+                string stat = UpdateManager.IsDownloading ? $"Загрузка {UpdateManager.DownloadProgress * 100:F0}%" : "Проверка...";
+                Theme.DrawText(stat, actBtnX + 12, curY + 6, 11, Theme.NeonGold);
+            }
+            else
+            {
+                string btnText = UpdateManager.UpdateAvailable ? "⚡ Установить обновление" : "Проверить обновления сейчас";
+                bool isUp = UpdateManager.UpdateAvailable;
+                if (Theme.DrawButton(actBtnX, curY, halfW, btnH, btnText, isUp, 11))
+                {
+                    if (UpdateManager.UpdateAvailable)
+                    {
+                        UpdateManager.ShowUpdatePrompt = true;
+                    }
+                    else
+                    {
+                        _ = System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            await UpdateManager.CheckForUpdatesAsync(silent: false);
+                            if (UpdateManager.UpdateAvailable)
+                            {
+                                UpdateManager.ShowUpdatePrompt = true;
+                            }
+                            else
+                            {
+                                _importStatusMessage = UpdateManager.StatusMessage;
+                                _importStatusSuccess = true;
+                            }
+                        });
+                    }
+                }
+            }
+
+            curY += (int)(34 * scale);
+            string note = "• При обновлении ваши рекорды (user_profile.json) и настройки полностью сохраняются.";
+            Theme.DrawText(note, innerX, curY, 10, Theme.NeonGreen);
 
             return h;
         }

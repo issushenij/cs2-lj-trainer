@@ -217,16 +217,14 @@ namespace LJTrainer.UI
 
             int leftTotalW = nameX + (int)(160 * scale);
 
-            // 2. Right: Action Buttons (Update App, Auto-Sync & Exit)
-            int closeBtnW = (int)(105 * scale);
+            // 2. Right: Action Buttons (Auto-Sync & Exit)
+            int closeBtnW = (int)(110 * scale);
             int closeBtnH = (int)(34 * scale);
-            int syncBtnW = (int)(135 * scale);
-            int updateBtnW = (int)(135 * scale);
-            int rightGap = 8;
+            int syncBtnW = (int)(140 * scale);
+            int rightGap = 10;
 
             int closeBtnX = screenWidth - 16 - closeBtnW;
             int syncBtnX = closeBtnX - rightGap - syncBtnW;
-            int updateBtnX = syncBtnX - rightGap - updateBtnW;
             int btnY = (headerH - closeBtnH) / 2;
 
             bool isModalActive = _showRankHistoryModal || _showPBHistoryModal || _showLogModal || _isEditingNick;
@@ -279,45 +277,8 @@ namespace LJTrainer.UI
                 }
             }
 
-            // [ОБНОВЛЕНИЕ ПРОГРАММЫ]
-            if (UpdateManager.IsChecking || UpdateManager.IsDownloading)
-            {
-                Raylib.DrawRectangle(updateBtnX, btnY, updateBtnW, closeBtnH, new Color(30, 25, 10, 220));
-                Raylib.DrawRectangleLines(updateBtnX, btnY, updateBtnW, closeBtnH, Theme.NeonGold);
-                string upAnim = UpdateManager.IsDownloading ? $"Загрузка {UpdateManager.DownloadProgress * 100:F0}%" : "Проверка...";
-                Theme.DrawText(upAnim, updateBtnX + 10, (headerH - Theme.GetScaledFontSize(10)) / 2, 10, Theme.NeonGold);
-            }
-            else
-            {
-                string upBtnText = UpdateManager.UpdateAvailable ? "⚡ ОБНОВИТЬ" : "Обновления";
-                bool isUpActive = UpdateManager.UpdateAvailable;
-                if (Theme.DrawButton(updateBtnX, btnY, updateBtnW, closeBtnH, upBtnText, isUpActive, 11, enabled: !isModalActive))
-                {
-                    if (UpdateManager.UpdateAvailable)
-                    {
-                        UpdateManager.ShowUpdatePrompt = true;
-                    }
-                    else
-                    {
-                        _ = System.Threading.Tasks.Task.Run(async () =>
-                        {
-                            await UpdateManager.CheckForUpdatesAsync(silent: false);
-                            if (UpdateManager.UpdateAvailable)
-                            {
-                                UpdateManager.ShowUpdatePrompt = true;
-                            }
-                            else
-                            {
-                                _importStatusMsg = UpdateManager.StatusMessage;
-                                _importStatusTime = Raylib.GetTime();
-                            }
-                        });
-                    }
-                }
-            }
-
             // 3. Center: Dynamically Sized Quick Stats Badges (Clickable Rank Badge -> Timeline Chain!)
-            int availMidW = updateBtnX - leftTotalW - 24;
+            int availMidW = syncBtnX - leftTotalW - 24;
             if (availMidW > 200)
             {
                 int badgeH = (int)(34 * scale);
@@ -1164,8 +1125,18 @@ namespace LJTrainer.UI
 
                 if (cy + cardH < pbAreaY - 20 || cy > pbAreaY + pbAreaH + 20) continue;
 
+                // Direction Switcher Pills Bounds (Bottom Right of card)
+                int dirPillW = (int)(36 * scale);
+                int dirPillH = (int)(20 * scale);
+                int dirPillY = cy + cardH - dirPillH - 8;
+                int dirPillX = cx + cardW - (dirPillW * 3 + 6) - 10;
+                Rectangle dirArea = new Rectangle(dirPillX - 2, dirPillY - 2, dirPillW * 3 + 10, dirPillH + 4);
+
                 bool isHover = inputActive && mouse.X >= cx && mouse.X <= cx + cardW && mouse.Y >= cy && mouse.Y <= cy + cardH;
-                if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left) && mouse.Y < cy + (int)(32 * scale))
+                bool isHoveringDirBtns = inputActive && Raylib.CheckCollisionPointRec(mouse, dirArea);
+
+                // Open PB History Timeline modal ONLY if clicked on the card outside direction buttons
+                if (isHover && !isHoveringDirBtns && Raylib.IsMouseButtonPressed(MouseButton.Left))
                 {
                     _selectedPbHistoryJumpType = jType;
                     _showPBHistoryModal = true;
@@ -1176,7 +1147,7 @@ namespace LJTrainer.UI
                 Raylib.DrawRectangleLines(cx, cy, cardW, cardH, isHover ? accentColor : new Color(accentColor.R, accentColor.G, accentColor.B, (byte)70));
                 Raylib.DrawRectangle(cx, cy, 4, cardH, accentColor);
 
-                // Row 1: Left: [CODE] TYPE NAME. Right: Direction Selector Pills [ПРЯМО | БОКОМ | СПИНОЙ]
+                // Row 1: Left: [CODE] TYPE NAME. Right: History indicator "ДРЕВО РЕКОРДОВ ▶"
                 int badgeW = (int)(36 * scale);
                 int badgeH = (int)(18 * scale);
                 Raylib.DrawRectangle(cx + 10, cy + 8, badgeW, badgeH, new Color(accentColor.R, accentColor.G, accentColor.B, (byte)35));
@@ -1185,22 +1156,10 @@ namespace LJTrainer.UI
 
                 Theme.DrawText(typeName.ToUpper(), cx + 10 + badgeW + 8, cy + 10, 10, Theme.TextWhite);
 
-                // Direction Switcher Pills inside each card (FWD / SW / BW)
-                int dirPillW = (int)(34 * scale);
-                int dirPillH = (int)(17 * scale);
-                int dirPillY = cy + 8;
-                int dirPillX = cx + cardW - (dirPillW * 3 + 6) - 10;
-
-                string[] dirLabels = { "FWD", "SW", "BW" };
-                for (int d = 0; d < 3; d++)
-                {
-                    int px = dirPillX + d * (dirPillW + 3);
-                    bool isCurDir = (_pbDirFilter == d);
-                    if (Theme.DrawButton(px, dirPillY, dirPillW, dirPillH, dirLabels[d], isCurDir, 7, enabled: inputActive))
-                    {
-                        _pbDirFilter = d;
-                    }
-                }
+                // History hint on the top right
+                string histHint = "История ▶";
+                int histW = Theme.MeasureText(histHint, 8) + 8;
+                Theme.DrawText(histHint, cx + cardW - histW - 10, cy + 11, 8, Theme.TextDim);
 
                 // Resolve values for the currently selected Direction (0 = FWD, 1 = SW, 2 = BW)
                 float activeDist = _pbDirFilter switch
@@ -1298,7 +1257,7 @@ namespace LJTrainer.UI
                             curBadgeAnchorX += tBadgeW + 6;
                         }
 
-                        // Block PB Badge with Tier Color (e.g. [БЛОК 270: OWNAGE])
+                        // Block PB Badge with Tier Color (e.g. [БЛОК 275: GODLIKE])
                         if (activeBlock > 0)
                         {
                             var (bTierName, _, bTierCol, _) = GetBlockTier(jType, activeBlock);
@@ -1325,14 +1284,26 @@ namespace LJTrainer.UI
 
                     // Row 4: Date & averages
                     string dateStr = activeDate != DateTime.MinValue ? activeDate.ToString("dd.MM.yyyy HH:mm") : "";
-                    string row2 = !string.IsNullOrEmpty(dateStr) ? $"Дата рекорда: {dateStr}" : $"Ср: {pb.AvgDist:F1}u ({pb.AvgSync:F0}% sync)";
-                    Theme.DrawText(row2, cx + 12, cy + (int)(84 * scale), 8, Theme.TextMuted);
+                    string row2 = !string.IsNullOrEmpty(dateStr) ? $"Дата: {dateStr}" : $"Ср: {pb.AvgDist:F1}u ({pb.AvgSync:F0}% sync)";
+                    Theme.DrawText(row2, cx + 12, cy + (int)(86 * scale), 8, Theme.TextMuted);
                 }
                 else
                 {
                     string dirName = _pbDirFilter == 1 ? "БОКОМ (SW)" : (_pbDirFilter == 2 ? "СПИНОЙ (BW)" : "ПРЯМО (FWD)");
                     Theme.DrawText($"НЕТ ЗАПИСИ {dirName}", cx + 12, cy + (int)(42 * scale), 12, Theme.TextMuted);
                     Theme.DrawText($"Совершите прыжок {dirName} на сервере CS2...", cx + 12, cy + (int)(70 * scale), 8, Theme.TextDim);
+                }
+
+                // Direction Switcher Pills at the BOTTOM RIGHT of each card (FWD / SW / BW)
+                string[] dirLabels = { "FWD", "SW", "BW" };
+                for (int d = 0; d < 3; d++)
+                {
+                    int px = dirPillX + d * (dirPillW + 3);
+                    bool isCurDir = (_pbDirFilter == d);
+                    if (Theme.DrawButton(px, dirPillY, dirPillW, dirPillH, dirLabels[d], isCurDir, 8, enabled: inputActive))
+                    {
+                        _pbDirFilter = d;
+                    }
                 }
             }
             Raylib.EndScissorMode();

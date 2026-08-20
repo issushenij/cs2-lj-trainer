@@ -450,6 +450,33 @@ namespace LJTrainer.UI
             Raylib.DrawCircle(cx + (int)(6.5f * s), cy + (int)(5.5f * s), 2.2f * s, dotCol);
         }
 
+        public static void DrawGearSettingsIcon(int cx, int cy, int size, Color color)
+        {
+            float s = size / 22.0f;
+            Vector2 center = new(cx, cy);
+
+            // Center hole / ring
+            Raylib.DrawCircleSectorLines(center, 4.0f * s, 0, 360, 20, color);
+            Raylib.DrawCircleSectorLines(center, 4.0f * s + 1.2f * s, 0, 360, 20, color);
+            Raylib.DrawCircleLines(cx, cy, 7.5f * s, color);
+
+            // 6 Gear Cogs around circle
+            for (int i = 0; i < 6; i++)
+            {
+                float angle = i * (MathF.PI / 3.0f);
+                float cos = MathF.Cos(angle);
+                float sin = MathF.Sin(angle);
+
+                Vector2 p1 = new(cx + cos * 6.5f * s - sin * 2.0f * s, cy + sin * 6.5f * s + cos * 2.0f * s);
+                Vector2 p2 = new(cx + cos * 10.0f * s - sin * 1.5f * s, cy + sin * 10.0f * s + cos * 1.5f * s);
+                Vector2 p3 = new(cx + cos * 10.0f * s + sin * 1.5f * s, cy + sin * 10.0f * s - cos * 1.5f * s);
+                Vector2 p4 = new(cx + cos * 6.5f * s + sin * 2.0f * s, cy + sin * 6.5f * s - cos * 2.0f * s);
+
+                Raylib.DrawTriangle(p1, p2, p3, color);
+                Raylib.DrawTriangle(p1, p3, p4, color);
+            }
+        }
+
         public static bool DrawIconButton(int x, int y, int width, int height, Action<int, int, int, Color> drawIcon, string? text, bool active = false, int fontSize = 12)
         {
             Vector2 mouse = Raylib.GetMousePosition();

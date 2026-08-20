@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -21,10 +22,31 @@ namespace LJTrainer.Core
 
     public static class UpdateManager
     {
-        public const string CurrentVersion = "v1.1.0";
+        public static string CurrentVersion { get; } = GetCurrentVersion();
         private const string RepoOwner = "issushenij";
         private const string RepoName = "cs2-lj-trainer";
         private const string ApiUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
+
+        private static string GetCurrentVersion()
+        {
+            try
+            {
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                var infoVer = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (!string.IsNullOrEmpty(infoVer))
+                {
+                    string clean = infoVer.Split('+')[0].Trim();
+                    return clean.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? clean : "v" + clean;
+                }
+                var ver = asm.GetName().Version;
+                if (ver != null)
+                {
+                    return $"v{ver.Major}.{ver.Minor}.{ver.Build}";
+                }
+            }
+            catch { }
+            return "v1.1.2";
+        }
 
         public static bool IsChecking { get; private set; } = false;
         public static bool UpdateAvailable { get; private set; } = false;

@@ -60,7 +60,7 @@ namespace LJTrainer
 
             // Set process DPI aware and configure Raylib flags
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
-            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab [DEMO v1.0.1]");
+            Raylib.InitWindow(1380, 860, $"CS2 Long Jump Cadence & Sync Lab [{UpdateManager.CurrentVersion}]");
             Raylib.SetWindowMinSize(1024, 700);
             Raylib.SetTargetFPS(144);
 
@@ -106,8 +106,11 @@ namespace LJTrainer
                     CybershokeWebSync.StartAutoSync(sid, null);
                 }
 
-                // Check for new releases on GitHub
-                await UpdateManager.CheckForUpdatesAsync(silent: true);
+                // Check for new releases on GitHub if enabled in settings
+                if (AppConfig.Instance.AutoCheckUpdates)
+                {
+                    await UpdateManager.CheckForUpdatesAsync(silent: true);
+                }
             });
 
             // Guide display policy on startup (defaults to false)
@@ -431,6 +434,27 @@ namespace LJTrainer
             }
             rx -= gap;
 
+            // 2. Settings Gear Square Icon Button
+            int gearBtnSize = tabH; // Pure square icon button
+            rx -= gearBtnSize;
+            if (Theme.DrawIconButton(rx, tabY, gearBtnSize, tabH, (cx, cy, sz, col) => Theme.DrawGearSettingsIcon(cx, cy, (int)(20 * scale), col), null, _settings.IsOpen, 12))
+            {
+                _settings.IsOpen = !_settings.IsOpen;
+                if (_settings.IsOpen)
+                {
+                    _cadenceLab.IsTrainingRunning = false;
+                    InputManager.Instance.SetCursorLock(false);
+                    _guideModal.IsOpen = false;
+                    _profileModal.IsOpen = false;
+                    _cadenceLab.ShowHistoryModal = false;
+                }
+                else
+                {
+                    AppConfig.Save();
+                }
+            }
+            rx -= gap;
+
             void DrawRightButton(string text, bool active, int fontSize, Action onClick)
             {
                 int bw = Theme.MeasureText(text, fontSize) + (int)(18 * scale);
@@ -457,24 +481,6 @@ namespace LJTrainer
                 rx -= gap;
             }
 
-            // Config [Tab]
-            DrawRightButton("[Tab] Config", _settings.IsOpen, 13, () =>
-            {
-                _settings.IsOpen = !_settings.IsOpen;
-                if (_settings.IsOpen)
-                {
-                    _cadenceLab.IsTrainingRunning = false;
-                    InputManager.Instance.SetCursorLock(false);
-                    _guideModal.IsOpen = false;
-                    _profileModal.IsOpen = false;
-                    _cadenceLab.ShowHistoryModal = false;
-                }
-                else
-                {
-                    AppConfig.Save();
-                }
-            });
-
             // History
             string histLabel = _cadenceLab.ShowHistoryModal ? "Закрыть ✕" : $"История ({_cadenceLab.RecentStrafes.Count})";
             DrawRightButton(histLabel, _cadenceLab.ShowHistoryModal, 13, () =>
@@ -490,8 +496,8 @@ namespace LJTrainer
                 }
             });
 
-            // Guide [?]
-            DrawRightButton("[?] Гайд (F1)", _guideModal.IsOpen, 13, () =>
+            // Guide
+            DrawRightButton("Гайд (F1)", _guideModal.IsOpen, 13, () =>
             {
                 _guideModal.IsOpen = !_guideModal.IsOpen;
                 if (_guideModal.IsOpen)
