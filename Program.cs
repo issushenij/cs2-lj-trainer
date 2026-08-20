@@ -55,7 +55,7 @@ namespace LJTrainer
 
             // Set process DPI aware and configure Raylib flags
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
-            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab [DEMO]");
+            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab v1.0.0");
             Raylib.SetWindowMinSize(1024, 700);
             Raylib.SetTargetFPS(144);
 
@@ -322,20 +322,20 @@ namespace LJTrainer
             // Top Nav Glass Background
             Theme.DrawGlassPanel(0, 0, screenWidth, navH);
 
-            // 1. Logo with DEMO tag
+            // 1. Logo with Version Tag
             int logoFontSize = 15;
             Theme.DrawText("CS2 LJ LAB", 16, tabY + (tabH - Theme.GetScaledFontSize(logoFontSize)) / 2, logoFontSize, Theme.NeonCyan);
             int logoW = Theme.MeasureText("CS2 LJ LAB", logoFontSize);
             
-            int demoBadgeW = (int)(46 * scale);
-            int demoBadgeH = (int)(18 * scale);
-            int demoBadgeX = 16 + logoW + 6;
-            int demoBadgeY = tabY + (tabH - demoBadgeH) / 2;
-            Raylib.DrawRectangle(demoBadgeX, demoBadgeY, demoBadgeW, demoBadgeH, new Color(255, 215, 0, 30));
-            Raylib.DrawRectangleLines(demoBadgeX, demoBadgeY, demoBadgeW, demoBadgeH, Theme.NeonGold);
-            Theme.DrawText("DEMO", demoBadgeX + 6, demoBadgeY + 3, 8, Theme.NeonGold);
+            int verBadgeW = (int)(48 * scale);
+            int verBadgeH = (int)(18 * scale);
+            int verBadgeX = 16 + logoW + 6;
+            int verBadgeY = tabY + (tabH - verBadgeH) / 2;
+            Raylib.DrawRectangle(verBadgeX, verBadgeY, verBadgeW, verBadgeH, new Color(0, 229, 255, 25));
+            Raylib.DrawRectangleLines(verBadgeX, verBadgeY, verBadgeW, verBadgeH, Theme.NeonCyan);
+            Theme.DrawText("v1.0.0", verBadgeX + 6, verBadgeY + 3, 8, Theme.NeonCyan);
 
-            int curX = demoBadgeX + demoBadgeW + (int)(14 * scale);
+            int curX = verBadgeX + verBadgeW + (int)(14 * scale);
             int gap = (int)(8 * scale);
 
             // Helper to draw a flowing button on the left

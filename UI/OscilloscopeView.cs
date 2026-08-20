@@ -67,21 +67,51 @@ namespace LJTrainer.UI
                     }
                 }
 
-                // 2. Draw Mouse Yaw Velocity Curve
+                // 2. Draw Mouse Yaw Velocity Curve with Smooth Catmull-Rom Spline
                 float maxVal = 25.0f; // degrees per tick scale
-                for (int i = 1; i < count; i++)
+                List<Vector2> rawWave = new();
+                for (int i = 0; i < count; i++)
                 {
-                    var p0 = history[i - 1];
-                    var p1 = history[i];
+                    var p = history[i];
+                    float y = midY - Math.Clamp(p.MouseYawVelocity / maxVal, -1.0f, 1.0f) * (graphH / 2 - 10);
+                    rawWave.Add(new Vector2(graphX + i * stepX, y));
+                }
 
-                    float y0 = midY - Math.Clamp(p0.MouseYawVelocity / maxVal, -1.0f, 1.0f) * (graphH / 2 - 10);
-                    float y1 = midY - Math.Clamp(p1.MouseYawVelocity / maxVal, -1.0f, 1.0f) * (graphH / 2 - 10);
+                if (rawWave.Count >= 2)
+                {
+                    int subDiv = 4;
+                    for (int i = 0; i < rawWave.Count - 1; i++)
+                    {
+                        Vector2 p0 = i > 0 ? rawWave[i - 1] : rawWave[i];
+                        Vector2 p1 = rawWave[i];
+                        Vector2 p2 = rawWave[i + 1];
+                        Vector2 p3 = i + 2 < rawWave.Count ? rawWave[i + 2] : p2;
 
-                    Vector2 v0 = new(graphX + (i - 1) * stepX, y0);
-                    Vector2 v1 = new(graphX + i * stepX, y1);
+                        var pt = history[i + 1];
+                        Color waveCol = pt.IsOverlap ? Theme.NeonRed : (pt.IsSync ? Theme.NeonGreen : Theme.NeonOrange);
 
-                    Color waveCol = p1.IsOverlap ? Theme.NeonRed : (p1.IsSync ? Theme.NeonGreen : Theme.NeonOrange);
-                    Raylib.DrawLineEx(v0, v1, 2.5f, waveCol);
+                        Vector2 prevSpline = p1;
+                        for (int s = 1; s <= subDiv; s++)
+                        {
+                            float t = s / (float)subDiv;
+                            float t2 = t * t;
+                            float t3 = t2 * t;
+
+                            Vector2 currSpline = 0.5f * (
+                                (2f * p1) +
+                                (-p0 + p2) * t +
+                                (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                                (-p0 + 3f * p1 - 3f * p2 + p3) * t3
+                            );
+
+                            // Glow line
+                            Raylib.DrawLineEx(prevSpline, currSpline, 4.5f, new Color(waveCol.R, waveCol.G, waveCol.B, (byte)50));
+                            // Core wave
+                            Raylib.DrawLineEx(prevSpline, currSpline, 2.2f, waveCol);
+
+                            prevSpline = currSpline;
+                        }
+                    }
                 }
 
                 // 3. Draw Sync Status strip at the bottom of graph

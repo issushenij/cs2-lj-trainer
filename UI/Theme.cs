@@ -247,17 +247,22 @@ namespace LJTrainer.UI
             Color textCol;
             Color borderCol;
 
+            float time = (float)Raylib.GetTime();
+
             if (active)
             {
+                // Active glowing gradient fill
                 bg = NeonCyan;
                 textCol = new Color(10, 14, 22, 255);
                 borderCol = NeonCyan;
             }
             else if (hovered)
             {
-                bg = new Color((byte)35, (byte)48, (byte)72, (byte)230);
+                // Smooth glowing hover state
+                float glowPulse = MathF.Sin(time * 6f) * 0.15f + 0.85f;
+                bg = new Color((byte)30, (byte)45, (byte)68, (byte)235);
                 textCol = TextWhite;
-                borderCol = NeonCyan;
+                borderCol = new Color((byte)(NeonCyan.R * glowPulse), (byte)(NeonCyan.G * glowPulse), (byte)(NeonCyan.B * glowPulse), (byte)255);
             }
             else
             {
@@ -269,10 +274,19 @@ namespace LJTrainer.UI
             Raylib.DrawRectangle(x, y, width, height, bg);
             Raylib.DrawRectangleLines(x, y, width, height, borderCol);
 
-            // Specular top highlight on button
+            // Specular top highlight and hover bottom glow line
             if (!active)
             {
-                Raylib.DrawLine(x + 1, y + 1, x + width - 2, y + 1, new Color((byte)255, (byte)255, (byte)255, (byte)35));
+                Raylib.DrawLine(x + 1, y + 1, x + width - 2, y + 1, new Color((byte)255, (byte)255, (byte)255, (byte)(hovered ? 75 : 35)));
+                if (hovered)
+                {
+                    Raylib.DrawLine(x + 2, y + height - 1, x + width - 3, y + height - 1, new Color(NeonCyan.R, NeonCyan.G, NeonCyan.B, 180));
+                }
+            }
+            else
+            {
+                // Active button bright top shine
+                Raylib.DrawLine(x + 1, y + 1, x + width - 2, y + 1, new Color(255, 255, 255, 160));
             }
 
             int textWidth = MeasureText(text, fontSize);

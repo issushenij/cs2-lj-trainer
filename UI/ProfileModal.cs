@@ -1499,26 +1499,67 @@ namespace LJTrainer.UI
                 screenPoints[i] = new Vector2(px, py);
             }
 
-            // Fill and connecting line
-            for (int i = 0; i < points.Count - 1; i++)
+            // Smooth Catmull-Rom Spline Curve Interpolation
+            List<Vector2> splinePoints = new();
+            if (screenPoints.Length >= 2)
             {
-                Vector2 p1 = screenPoints[i];
-                Vector2 p2 = screenPoints[i + 1];
-                Vector2 b1 = new Vector2(p1.X, gy + padT + plotH);
-                Vector2 b2 = new Vector2(p2.X, gy + padT + plotH);
+                int subdivisions = 8; // Smooth 8 intermediate steps between points
+                for (int i = 0; i < screenPoints.Length - 1; i++)
+                {
+                    Vector2 p0 = i > 0 ? screenPoints[i - 1] : screenPoints[i];
+                    Vector2 p1 = screenPoints[i];
+                    Vector2 p2 = screenPoints[i + 1];
+                    Vector2 p3 = i + 2 < screenPoints.Length ? screenPoints[i + 2] : p2;
 
-                Raylib.DrawTriangle(p1, b1, p2, new Color(0, 240, 255, 18));
-                Raylib.DrawTriangle(p2, b1, b2, new Color(0, 240, 255, 18));
-                Raylib.DrawLineEx(p1, p2, 2.5f, Theme.NeonCyan);
+                    for (int s = 0; s < subdivisions; s++)
+                    {
+                        float t = s / (float)subdivisions;
+                        float t2 = t * t;
+                        float t3 = t2 * t;
+
+                        // Catmull-Rom formula: 0.5 * ((2*P1) + (-P0 + P2)*t + (2*P0 - 5*P1 + 4*P2 - P3)*t^2 + (-P0 + 3*P1 - 3*P2 + P3)*t^3)
+                        Vector2 sp = 0.5f * (
+                            (2f * p1) +
+                            (-p0 + p2) * t +
+                            (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                            (-p0 + 3f * p1 - 3f * p2 + p3) * t3
+                        );
+                        splinePoints.Add(sp);
+                    }
+                }
+                splinePoints.Add(screenPoints[^1]);
+            }
+            else if (screenPoints.Length == 1)
+            {
+                splinePoints.Add(screenPoints[0]);
+            }
+
+            // Fill area below smooth curve with soft glowing gradient
+            float baseLineY = gy + padT + plotH;
+            for (int i = 0; i < splinePoints.Count - 1; i++)
+            {
+                Vector2 p1 = splinePoints[i];
+                Vector2 p2 = splinePoints[i + 1];
+                Vector2 b1 = new Vector2(p1.X, baseLineY);
+                Vector2 b2 = new Vector2(p2.X, baseLineY);
+
+                Raylib.DrawTriangle(p1, b1, p2, new Color(0, 229, 255, 20));
+                Raylib.DrawTriangle(p2, b1, b2, new Color(0, 229, 255, 20));
+                
+                // Outer neon glow
+                Raylib.DrawLineEx(p1, p2, 4.5f, new Color(0, 229, 255, 50));
+                // Core sharp line
+                Raylib.DrawLineEx(p1, p2, 2.0f, Theme.NeonCyan);
             }
 
             string? hoverTooltip = null;
             Vector2 tooltipPos = Vector2.Zero;
+            float timeAnim = (float)Raylib.GetTime();
 
             for (int i = 0; i < points.Count; i++)
             {
                 Vector2 pt = screenPoints[i];
-                bool isPtHover = Vector2.Distance(mouse, pt) < 11f;
+                bool isPtHover = Vector2.Distance(mouse, pt) < 12f;
                 bool isSelected = (_selectedTrajectoryJumpIndex == i);
 
                 float jDist = jumps[i].Distance;
@@ -1533,6 +1574,13 @@ namespace LJTrainer.UI
                     {
                         _selectedTrajectoryJumpIndex = i;
                     }
+                }
+
+                // Smooth breathing animation for selected node
+                float pulse = isSelected ? (MathF.Sin(timeAnim * 5f) * 2.5f + 4.5f) : (isPtHover ? 3.5f : 0f);
+                if (pulse > 0)
+                {
+                    Raylib.DrawCircle((int)pt.X, (int)pt.Y, 7f + pulse, new Color(0, 229, 255, 60));
                 }
 
                 // Draw Tier Glows: Purple (Wrecker), Yellow (Ownage), Red (Godlike), Green (Perfect)
@@ -1811,56 +1859,96 @@ namespace LJTrainer.UI
 
                 if (_selectedTrajectoryJumpIndex != -1 && pathPoints.Count > 1)
                 {
+                    // Generate smooth Catmull-Rom spline points for the 2D airpath
+                    List<(Vector2 ScreenPos, TrajPoint Point)> smoothPath = new();
+                    int subdivisions = 6;
+
                     for (int i = 0; i < pathPoints.Count - 1; i++)
                     {
+                        var pt0 = i > 0 ? pathPoints[i - 1] : pathPoints[i];
                         var pt1 = pathPoints[i];
                         var pt2 = pathPoints[i + 1];
+                        var pt3 = i + 2 < pathPoints.Count ? pathPoints[i + 2] : pt2;
 
-                        int s1X = originX + (int)(pt1.Pos.X * pxPerUnitX);
-                        int s1Y = originY - (int)(pt1.Pos.Y * pxPerUnitY);
-                        int s2X = originX + (int)(pt2.Pos.X * pxPerUnitX);
-                        int s2Y = originY - (int)(pt2.Pos.Y * pxPerUnitY);
+                        for (int s = 0; s < subdivisions; s++)
+                        {
+                            float t = s / (float)subdivisions;
+                            float t2 = t * t;
+                            float t3 = t2 * t;
+
+                            Vector2 p0 = new(originX + pt0.Pos.X * pxPerUnitX, originY - pt0.Pos.Y * pxPerUnitY);
+                            Vector2 p1 = new(originX + pt1.Pos.X * pxPerUnitX, originY - pt1.Pos.Y * pxPerUnitY);
+                            Vector2 p2 = new(originX + pt2.Pos.X * pxPerUnitX, originY - pt2.Pos.Y * pxPerUnitY);
+                            Vector2 p3 = new(originX + pt3.Pos.X * pxPerUnitX, originY - pt3.Pos.Y * pxPerUnitY);
+
+                            Vector2 sp = 0.5f * (
+                                (2f * p1) +
+                                (-p0 + p2) * t +
+                                (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                                (-p0 + 3f * p1 - 3f * p2 + p3) * t3
+                            );
+
+                            smoothPath.Add((sp, pt1));
+                        }
+                    }
+                    var lastPt = pathPoints[^1];
+                    smoothPath.Add((new Vector2(originX + lastPt.Pos.X * pxPerUnitX, originY - lastPt.Pos.Y * pxPerUnitY), lastPt));
+
+                    // Render smooth glowing laser beam segments
+                    float trajAnim = (float)Raylib.GetTime();
+                    for (int i = 0; i < smoothPath.Count - 1; i++)
+                    {
+                        var (sp1, pt1) = smoothPath[i];
+                        var (sp2, _) = smoothPath[i + 1];
 
                         Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
 
-                        // KZ Laser Beam Glow Layer
+                        // Pulse animation along the curve
+                        float pulseGlow = (MathF.Sin(trajAnim * 4f - i * 0.08f) * 0.5f + 0.5f);
+
                         if (pt1.IsOverlap)
                         {
                             segCol = Theme.NeonRed;
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 5.5f, new Color(255, 40, 40, 70));
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 3.2f, Theme.NeonRed);
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 1.2f, new Color(255, 255, 255, 180));
+                            Raylib.DrawLineEx(sp1, sp2, 5.8f + pulseGlow * 1.5f, new Color(255, 40, 40, (byte)(70 + pulseGlow * 40)));
+                            Raylib.DrawLineEx(sp1, sp2, 3.2f, Theme.NeonRed);
+                            Raylib.DrawLineEx(sp1, sp2, 1.2f, new Color(255, 255, 255, 180));
                         }
                         else if (pt1.IsBadAngle)
                         {
                             segCol = Theme.NeonOrange;
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 5.0f, new Color(255, 140, 0, 70));
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 3.0f, Theme.NeonOrange);
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 1.0f, new Color(255, 255, 255, 160));
+                            Raylib.DrawLineEx(sp1, sp2, 5.2f + pulseGlow * 1.2f, new Color(255, 140, 0, (byte)(65 + pulseGlow * 35)));
+                            Raylib.DrawLineEx(sp1, sp2, 3.0f, Theme.NeonOrange);
+                            Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 160));
                         }
                         else
                         {
-                            // Authentic KZ Laser Beam Trail (Glow + Solid Core + White Centerline)
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 4.8f, new Color(segCol.R, segCol.G, segCol.B, (byte)60));
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 2.6f, segCol);
-                            Raylib.DrawLineEx(new Vector2(s1X, s1Y), new Vector2(s2X, s2Y), 1.0f, new Color(255, 255, 255, 140));
+                            Raylib.DrawLineEx(sp1, sp2, 5.0f + pulseGlow * 1.5f, new Color(segCol.R, segCol.G, segCol.B, (byte)(60 + pulseGlow * 45)));
+                            Raylib.DrawLineEx(sp1, sp2, 2.6f, segCol);
+                            Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 140));
                         }
 
-                        // Waypoint markers at strafe start
-                        if (i > 0 && pt1.StrafeIndex != pathPoints[i - 1].StrafeIndex)
-                        {
-                            Raylib.DrawCircle(s1X, s1Y, 4.5f, new Color(segCol.R, segCol.G, segCol.B, (byte)100));
-                            Raylib.DrawCircle(s1X, s1Y, 3.0f, segCol);
-                            Raylib.DrawCircle(s1X, s1Y, 1.5f, Theme.TextWhite);
-                            Theme.DrawText($"S{pt1.StrafeIndex + 1}", s1X + (pt1.StrafeIndex % 2 == 0 ? -16 : 6), s1Y - 5, 8, Theme.TextWhite);
-                        }
-
-                        // Check hover on any point of the curve
-                        Vector2 mid = new(s1X, s1Y);
-                        if (Vector2.Distance(mouse, mid) < 7.5f)
+                        // Check hover
+                        if (Vector2.Distance(mouse, sp1) < 8.0f)
                         {
                             hoverPoint = pt1;
-                            hoverScreenPos = mid;
+                            hoverScreenPos = sp1;
+                        }
+                    }
+
+                    // Waypoint markers at strafe start
+                    for (int i = 1; i < pathPoints.Count; i++)
+                    {
+                        var pt1 = pathPoints[i];
+                        if (pt1.StrafeIndex != pathPoints[i - 1].StrafeIndex)
+                        {
+                            int s1X = originX + (int)(pt1.Pos.X * pxPerUnitX);
+                            int s1Y = originY - (int)(pt1.Pos.Y * pxPerUnitY);
+                            Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
+
+                            Raylib.DrawCircle(s1X, s1Y, 5.0f, new Color(segCol.R, segCol.G, segCol.B, 120));
+                            Raylib.DrawCircle(s1X, s1Y, 3.2f, segCol);
+                            Raylib.DrawCircle(s1X, s1Y, 1.5f, Theme.TextWhite);
+                            Theme.DrawText($"S{pt1.StrafeIndex + 1}", s1X + (pt1.StrafeIndex % 2 == 0 ? -16 : 6), s1Y - 5, 8, Theme.TextWhite);
                         }
                     }
 
