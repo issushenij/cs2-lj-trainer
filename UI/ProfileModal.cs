@@ -217,18 +217,21 @@ namespace LJTrainer.UI
 
             int leftTotalW = nameX + (int)(160 * scale);
 
-            // 2. Right: Action Buttons (Only 2 buttons: Auto-Sync & Exit)
-            int closeBtnW = (int)(110 * scale);
+            // 2. Right: Action Buttons (Update App, Auto-Sync & Exit)
+            int closeBtnW = (int)(105 * scale);
             int closeBtnH = (int)(34 * scale);
-            int syncBtnW = (int)(140 * scale);
-            int rightGap = 10;
+            int syncBtnW = (int)(135 * scale);
+            int updateBtnW = (int)(135 * scale);
+            int rightGap = 8;
 
             int closeBtnX = screenWidth - 16 - closeBtnW;
             int syncBtnX = closeBtnX - rightGap - syncBtnW;
+            int updateBtnX = syncBtnX - rightGap - updateBtnW;
             int btnY = (headerH - closeBtnH) / 2;
 
             bool isModalActive = _showRankHistoryModal || _showPBHistoryModal || _showLogModal || _isEditingNick;
 
+            // [НАЗАД / ESC]
             if (Theme.DrawButton(closeBtnX, btnY, closeBtnW, closeBtnH, "НАЗАД [Esc]", false, 11, enabled: !isModalActive) ||
                 Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.P))
             {
@@ -256,6 +259,7 @@ namespace LJTrainer.UI
                 }
             }
 
+            // [АВТО-СИНХРОНИЗАЦИЯ С CYBERSHOKE]
             if (CybershokeWebSync.IsSyncing)
             {
                 Raylib.DrawRectangle(syncBtnX, btnY, syncBtnW, closeBtnH, new Color(0, 45, 60, 220));
@@ -275,8 +279,45 @@ namespace LJTrainer.UI
                 }
             }
 
+            // [ОБНОВЛЕНИЕ ПРОГРАММЫ]
+            if (UpdateManager.IsChecking || UpdateManager.IsDownloading)
+            {
+                Raylib.DrawRectangle(updateBtnX, btnY, updateBtnW, closeBtnH, new Color(30, 25, 10, 220));
+                Raylib.DrawRectangleLines(updateBtnX, btnY, updateBtnW, closeBtnH, Theme.NeonGold);
+                string upAnim = UpdateManager.IsDownloading ? $"Загрузка {UpdateManager.DownloadProgress * 100:F0}%" : "Проверка...";
+                Theme.DrawText(upAnim, updateBtnX + 10, (headerH - Theme.GetScaledFontSize(10)) / 2, 10, Theme.NeonGold);
+            }
+            else
+            {
+                string upBtnText = UpdateManager.UpdateAvailable ? "⚡ ОБНОВИТЬ" : "Обновления";
+                bool isUpActive = UpdateManager.UpdateAvailable;
+                if (Theme.DrawButton(updateBtnX, btnY, updateBtnW, closeBtnH, upBtnText, isUpActive, 11, enabled: !isModalActive))
+                {
+                    if (UpdateManager.UpdateAvailable)
+                    {
+                        UpdateManager.ShowUpdatePrompt = true;
+                    }
+                    else
+                    {
+                        _ = System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            await UpdateManager.CheckForUpdatesAsync(silent: false);
+                            if (UpdateManager.UpdateAvailable)
+                            {
+                                UpdateManager.ShowUpdatePrompt = true;
+                            }
+                            else
+                            {
+                                _importStatusMsg = UpdateManager.StatusMessage;
+                                _importStatusTime = Raylib.GetTime();
+                            }
+                        });
+                    }
+                }
+            }
+
             // 3. Center: Dynamically Sized Quick Stats Badges (Clickable Rank Badge -> Timeline Chain!)
-            int availMidW = syncBtnX - leftTotalW - 24;
+            int availMidW = updateBtnX - leftTotalW - 24;
             if (availMidW > 200)
             {
                 int badgeH = (int)(34 * scale);
@@ -1833,11 +1874,13 @@ namespace LJTrainer.UI
                     break;
 
                 case "Ladderhop":
-                    wreckerDist = 210.0f;
-                    ownageDist = 200.0f;
-                    godlikeDist = 190.0f;
-                    perfectDist = 180.0f;
-                    impressiveDist = 170.0f;
+                    // CS2 Ladderhop thresholds:
+                    // Wrecker: 278+, Ownage: 274-277, Godlike: 270-273, Perfect: 265-269, Impressive: 255-264
+                    wreckerDist = 278.0f;
+                    ownageDist = 274.0f;
+                    godlikeDist = 270.0f;
+                    perfectDist = 265.0f;
+                    impressiveDist = 255.0f;
                     break;
 
                 case "Sideways Jump":
@@ -1845,10 +1888,12 @@ namespace LJTrainer.UI
                 case "Long Jump":
                 case "Jumpbug":
                 default:
-                    // Cybershoke CS2 KZ LJ / Jumpbug / SW / BW exact thresholds:
-                    // GODLIKE: 275.0 - 279.99 (Красный)
-                    // OWNAGE: 280.0 - 283.99 (Желтый)
+                    // Cybershoke CS2 KZ LJ / Jumpbug / SW / BW exact distance thresholds:
                     // WRECKER: 284.0+ (Фиолетовый)
+                    // OWNAGE: 280.0 - 283.99 (Желтый)
+                    // GODLIKE: 275.0 - 279.99 (Красный)
+                    // PERFECT: 270.0 - 274.99 (Зеленый)
+                    // IMPRESSIVE: 265.0 - 269.99 (Голубой)
                     wreckerDist = 284.0f;
                     ownageDist = 280.0f;
                     godlikeDist = 275.0f;
@@ -1916,11 +1961,12 @@ namespace LJTrainer.UI
                     break;
 
                 case "Ladderhop":
-                    wreckerBlock = 200.0f;
-                    ownageBlock = 190.0f;
-                    godlikeBlock = 180.0f;
-                    perfectBlock = 170.0f;
-                    impressiveBlock = 160.0f;
+                    // CS2 Ladderhop Block Tiers
+                    wreckerBlock = 274.0f;
+                    ownageBlock = 270.0f;
+                    godlikeBlock = 266.0f;
+                    perfectBlock = 260.0f;
+                    impressiveBlock = 252.0f;
                     break;
 
                 case "Sideways Jump":
@@ -1929,16 +1975,17 @@ namespace LJTrainer.UI
                 case "Jumpbug":
                 default:
                     // CS2 Block Tiers for LJ / SW / BW / JB:
-                    // WRECKER: 275+ (Purple)
-                    // OWNAGE: 270 - 274 (Gold)
-                    // GODLIKE: 265 - 269 (Red)
-                    // PERFECT: 260 - 264 (Green)
-                    // IMPRESSIVE: 255 - 259 (Cyan)
-                    wreckerBlock = 275.0f;
-                    ownageBlock = 270.0f;
-                    godlikeBlock = 265.0f;
-                    perfectBlock = 260.0f;
-                    impressiveBlock = 255.0f;
+                    // 275 блок - это Godlike
+                    // WRECKER: 280+ (Purple)
+                    // OWNAGE: 277 - 279 (Gold)
+                    // GODLIKE: 274 - 276 (Red, т.е. 275 блок здесь)
+                    // PERFECT: 268 - 273 (Green)
+                    // IMPRESSIVE: 262 - 267 (Cyan)
+                    wreckerBlock = 280.0f;
+                    ownageBlock = 277.0f;
+                    godlikeBlock = 274.0f;
+                    perfectBlock = 268.0f;
+                    impressiveBlock = 262.0f;
                     break;
             }
 
