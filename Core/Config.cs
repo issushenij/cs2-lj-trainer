@@ -90,7 +90,7 @@ namespace LJTrainer.Core
         public TrainerMode ModeType { get; set; } = TrainerMode.StrafePractice;
         public bool MetronomeEnabled { get; set; } = false;
         public ReversalTriggerMode FreestyleTrigger { get; set; } = ReversalTriggerMode.ByMouseMovement;
-        public float UiScale { get; set; } = 1.0f; // 1.0f (Normal), 1.25f (Large), 1.50f (Extra Large)
+        public float UiScale { get; set; } = 1.50f; // 1.0f (Normal), 1.25f (Large), 1.50f (Extra Large - Default)
         public bool ShowTooltips { get; set; } = true;
         public bool ZenModeAutoFade { get; set; } = true;
         public bool ShowWelcomeGuideOnStartup { get; set; } = false;

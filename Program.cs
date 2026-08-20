@@ -55,7 +55,7 @@ namespace LJTrainer
 
             // Set process DPI aware and configure Raylib flags
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
-            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab v10.8");
+            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab [DEMO]");
             Raylib.SetWindowMinSize(1024, 700);
             Raylib.SetTargetFPS(144);
 
@@ -322,10 +322,20 @@ namespace LJTrainer
             // Top Nav Glass Background
             Theme.DrawGlassPanel(0, 0, screenWidth, navH);
 
-            // 1. Logo
-            int logoFontSize = 16;
+            // 1. Logo with DEMO tag
+            int logoFontSize = 15;
             Theme.DrawText("CS2 LJ LAB", 16, tabY + (tabH - Theme.GetScaledFontSize(logoFontSize)) / 2, logoFontSize, Theme.NeonCyan);
-            int curX = 16 + Theme.MeasureText("CS2 LJ LAB", logoFontSize) + (int)(18 * scale);
+            int logoW = Theme.MeasureText("CS2 LJ LAB", logoFontSize);
+            
+            int demoBadgeW = (int)(46 * scale);
+            int demoBadgeH = (int)(18 * scale);
+            int demoBadgeX = 16 + logoW + 6;
+            int demoBadgeY = tabY + (tabH - demoBadgeH) / 2;
+            Raylib.DrawRectangle(demoBadgeX, demoBadgeY, demoBadgeW, demoBadgeH, new Color(255, 215, 0, 30));
+            Raylib.DrawRectangleLines(demoBadgeX, demoBadgeY, demoBadgeW, demoBadgeH, Theme.NeonGold);
+            Theme.DrawText("DEMO", demoBadgeX + 6, demoBadgeY + 3, 8, Theme.NeonGold);
+
+            int curX = demoBadgeX + demoBadgeW + (int)(14 * scale);
             int gap = (int)(8 * scale);
 
             // Helper to draw a flowing button on the left

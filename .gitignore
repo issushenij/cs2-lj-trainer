@@ -19,3 +19,7 @@ user_profile.json
 ## Scratch & Dumps
 scratch/
 *_dump.txt
+
+publish_release/
+*.zip
+
