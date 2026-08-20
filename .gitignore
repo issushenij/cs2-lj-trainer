@@ -1,0 +1,21 @@
+## .NET / C# Build Artifacts
+bin/
+obj/
+dist/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.idea/
+*.swp
+
+## Runtime / Local User Data & Configs
+*.tmp
+*.log
+config.json
+user_profile.json
+
+## Scratch & Dumps
+scratch/
+*_dump.txt
