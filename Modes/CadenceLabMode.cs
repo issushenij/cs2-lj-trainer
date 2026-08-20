@@ -989,24 +989,29 @@ namespace LJTrainer.Modes
         private void DrawPauseBanner(int screenWidth, int screenHeight)
         {
             var cfg = AppConfig.Instance;
+            float scale = cfg.UiScale;
             int cx = screenWidth / 2;
             int cy = (int)(screenHeight * 0.50f);
             string banner = "ТРЕНИРОВКА НА ПАУЗЕ — НАЖМИТЕ ПРОБЕЛ (SPACE) ДЛЯ СТАРТА";
-            int bw = Theme.MeasureText(banner, 15);
+            int fontSize = 13;
+            int bw = Theme.MeasureText(banner, fontSize);
+            int textH = Theme.GetScaledFontSize(fontSize);
+            int boxH = (int)(textH + 18 * scale);
+            int boxW = bw + (int)(36 * scale);
 
-            Raylib.DrawRectangle(cx - bw / 2 - 18, cy, bw + 36, 34, new Color((byte)Theme.BgDark.R, (byte)Theme.BgDark.G, (byte)Theme.BgDark.B, (byte)240));
-            Raylib.DrawRectangleLines(cx - bw / 2 - 18, cy, bw + 36, 34, Theme.NeonGold);
-            Theme.DrawText(banner, cx - bw / 2, cy + 8, 15, Theme.NeonGold);
+            Raylib.DrawRectangle(cx - boxW / 2, cy, boxW, boxH, new Color((byte)Theme.BgDark.R, (byte)Theme.BgDark.G, (byte)Theme.BgDark.B, (byte)240));
+            Raylib.DrawRectangleLines(cx - boxW / 2, cy, boxW, boxH, Theme.NeonGold);
+            Theme.DrawText(banner, cx - bw / 2, cy + (boxH - textH) / 2, fontSize, Theme.NeonGold);
         }
 
         private int DrawAppleGlassCapsule(int screenWidth, int screenHeight)
         {
             var cfg = AppConfig.Instance;
             float scale = cfg.UiScale;
-            int capW = Math.Min((int)(1100 * scale), screenWidth - 30);
-            int capH = (int)(96 * scale);
+            int capW = Math.Min((int)(880 * scale), screenWidth - 40);
+            int capH = (int)(68 * scale);
             int capX = (screenWidth - capW) / 2;
-            int capY = (int)(screenHeight * 0.58f);
+            int capY = (int)(screenHeight * 0.62f);
 
             // Frosted Glass Capsule Background (Glassmorphism 2.0 with Specular Highlight)
             Theme.DrawGlassPanel(capX, capY, capW, capH);
@@ -1087,21 +1092,21 @@ namespace LJTrainer.Modes
 
         private void DrawCapsuleColumn(int x, int y, int w, int h, string label, string mainVal, string subVal, Color valColor, float scale)
         {
-            Raylib.DrawLine(x, y + (int)(12 * scale), x, y + h - (int)(12 * scale), new Color((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)150));
+            Raylib.DrawLine(x, y + (int)(8 * scale), x, y + h - (int)(8 * scale), new Color((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)150));
 
             int cx = x + w / 2;
 
             // Label
-            int lw = Theme.MeasureText(label, 12);
-            Theme.DrawText(label, cx - lw / 2, y + (int)(10 * scale), 12, Theme.TextMuted);
+            int lw = Theme.MeasureText(label, 11);
+            Theme.DrawText(label, cx - lw / 2, y + (int)(5 * scale), 11, Theme.TextMuted);
 
             // Main Value
-            int mw = Theme.MeasureText(mainVal, 20);
-            Theme.DrawText(mainVal, cx - mw / 2, y + (int)(32 * scale), 20, valColor);
+            int mw = Theme.MeasureText(mainVal, 18);
+            Theme.DrawText(mainVal, cx - mw / 2, y + (int)(22 * scale), 18, valColor);
 
             // Sub Value
-            int sw = Theme.MeasureText(subVal, 12);
-            Theme.DrawText(subVal, cx - sw / 2, y + (int)(64 * scale), 12, Theme.TextDim);
+            int sw = Theme.MeasureText(subVal, 10);
+            Theme.DrawText(subVal, cx - sw / 2, y + (int)(46 * scale), 10, Theme.TextDim);
         }
 
         private void DrawReversalAlert(int screenWidth, int topY)

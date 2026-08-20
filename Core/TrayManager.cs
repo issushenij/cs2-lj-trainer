@@ -55,11 +55,11 @@ namespace LJTrainer.Core
 
                 try
                 {
-                    _notifyIcon.Icon = SystemIcons.Application;
+                    _notifyIcon.Icon = CreateCustomLJIcon();
                 }
                 catch
                 {
-                    _notifyIcon.Icon = SystemIcons.Information;
+                    _notifyIcon.Icon = SystemIcons.Application;
                 }
 
                 _notifyIcon.DoubleClick += (s, e) => RestoreFromTray();
@@ -121,14 +121,125 @@ namespace LJTrainer.Core
             _onExit?.Invoke();
         }
 
+        public static System.Drawing.Icon CreateCustomLJIcon()
+        {
+            string logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "icons", "lj_logo_white.svg");
+            if (!System.IO.File.Exists(logoPath)) logoPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "icons", "lj_logo_white.svg");
+
+            using var bmp = new System.Drawing.Bitmap(64, 64);
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.Clear(System.Drawing.Color.FromArgb(255, 10, 14, 22));
+
+                // Cyan border
+                using var borderPen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 0, 229, 255), 2f);
+                g.DrawRectangle(borderPen, 1, 1, 61, 61);
+
+                // If SVG exists, rasterize onto tray icon
+                if (System.IO.File.Exists(logoPath))
+                {
+                    try
+                    {
+                        var svg = new Svg.Skia.SKSvg();
+                        using var stream = System.IO.File.OpenRead(logoPath);
+                        var skPic = svg.Load(stream);
+                        if (skPic != null)
+                        {
+                            using var skBmp = new SkiaSharp.SKBitmap(48, 44, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul);
+                            using var skCanvas = new SkiaSharp.SKCanvas(skBmp);
+                            skCanvas.Clear(SkiaSharp.SKColors.Transparent);
+                            skCanvas.Scale(48f / skPic.CullRect.Width, 44f / skPic.CullRect.Height);
+                            skCanvas.DrawPicture(skPic);
+                            skCanvas.Flush();
+
+                            using var ms = new System.IO.MemoryStream();
+                            skBmp.Encode(ms, SkiaSharp.SKEncodedImageFormat.Png, 100);
+                            using var iconBmp = new System.Drawing.Bitmap(ms);
+                            g.DrawImage(iconBmp, 8, 10, 48, 44);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            IntPtr hIcon = bmp.GetHicon();
+            return System.Drawing.Icon.FromHandle(hIcon);
+        }
+
+        public static void SetWindowCustomIcon()
+        {
+            try
+            {
+                string logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "icons", "lj_logo_white.svg");
+                if (!System.IO.File.Exists(logoPath)) logoPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "icons", "lj_logo_white.svg");
+
+                using var bmp = new System.Drawing.Bitmap(128, 128);
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.Clear(System.Drawing.Color.FromArgb(255, 10, 14, 22));
+
+                    using var borderPen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 0, 229, 255), 3f);
+                    g.DrawRectangle(borderPen, 2, 2, 123, 123);
+
+                    if (System.IO.File.Exists(logoPath))
+                    {
+                        var svg = new Svg.Skia.SKSvg();
+                        using var stream = System.IO.File.OpenRead(logoPath);
+                        var skPic = svg.Load(stream);
+                        if (skPic != null)
+                        {
+                            using var skBmp = new SkiaSharp.SKBitmap(100, 92, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul);
+                            using var skCanvas = new SkiaSharp.SKCanvas(skBmp);
+                            skCanvas.Clear(SkiaSharp.SKColors.Transparent);
+                            skCanvas.Scale(100f / skPic.CullRect.Width, 92f / skPic.CullRect.Height);
+                            skCanvas.DrawPicture(skPic);
+                            skCanvas.Flush();
+
+                            using var ms = new System.IO.MemoryStream();
+                            skBmp.Encode(ms, SkiaSharp.SKEncodedImageFormat.Png, 100);
+                            using var iconBmp = new System.Drawing.Bitmap(ms);
+                            g.DrawImage(iconBmp, 14, 18, 100, 92);
+                        }
+                    }
+                }
+
+                // Save app_icon.ico for Windows executable
+                try
+                {
+                    string rootIco = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_icon.ico");
+                    using var icoFs = System.IO.File.OpenWrite(rootIco);
+                    using var icoObj = System.Drawing.Icon.FromHandle(bmp.GetHicon());
+                    icoObj.Save(icoFs);
+                }
+                catch { }
+
+                // Convert Bitmap to Raylib Image and set as Window Icon
+                string iconTempPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_icon.png");
+                bmp.Save(iconTempPath, System.Drawing.Imaging.ImageFormat.Png);
+                
+                if (System.IO.File.Exists(iconTempPath))
+                {
+                    var rayImg = Raylib.LoadImage(iconTempPath);
+                    Raylib.SetWindowIcon(rayImg);
+                    Raylib.UnloadImage(rayImg);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TrayManager] SetWindowIcon error: {ex.Message}");
+            }
+        }
+
         public static void Dispose()
         {
-            if (_notifyIcon != null)
+            try
             {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
+                _notifyIcon?.Dispose();
                 _notifyIcon = null;
             }
+            catch { }
         }
     }
 }

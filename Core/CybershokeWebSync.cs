@@ -26,7 +26,18 @@ namespace LJTrainer.Core
             if (IsSyncing) return;
 
             var cs = UserProfile.Instance.Cybershoke;
-            string targetSid = !string.IsNullOrEmpty(steamId) ? steamId : (!string.IsNullOrEmpty(cs.SteamId64) ? cs.SteamId64 : "76561199157353983");
+            string? targetSid = !string.IsNullOrEmpty(steamId) 
+                ? steamId 
+                : (!string.IsNullOrEmpty(cs.SteamId64) ? cs.SteamId64 : CS2ConfigImporter.DetectLocalSteamId64());
+
+            if (string.IsNullOrEmpty(targetSid))
+            {
+                onCompleted?.Invoke(false, "SteamID64 не найден. Введите SteamID в профиле или запустите CS2.");
+                return;
+            }
+
+            // Save detected SteamID
+            cs.SteamId64 = targetSid;
 
             IsSyncing = true;
             LastSyncSuccess = false;

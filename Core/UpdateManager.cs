@@ -1,0 +1,294 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+namespace LJTrainer.Core
+{
+    public class GitHubReleaseInfo
+    {
+        public string TagName { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Body { get; set; } = "";
+        public string HtmlUrl { get; set; } = "";
+        public string DownloadUrl { get; set; } = "";
+        public string ExeDownloadUrl { get; set; } = "";
+        public long SizeBytes { get; set; } = 0;
+    }
+
+    public static class UpdateManager
+    {
+        public const string CurrentVersion = "v1.1.0";
+        private const string RepoOwner = "issushenij";
+        private const string RepoName = "cs2-lj-trainer";
+        private const string ApiUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
+
+        public static bool IsChecking { get; private set; } = false;
+        public static bool UpdateAvailable { get; private set; } = false;
+        public static bool ShowUpdatePrompt { get; set; } = false;
+        public static bool IsDownloading { get; private set; } = false;
+        public static float DownloadProgress { get; private set; } = 0f;
+        public static string StatusMessage { get; private set; } = "";
+        public static GitHubReleaseInfo? LatestRelease { get; private set; } = null;
+
+        public static async Task CheckForUpdatesAsync(bool silent = true)
+        {
+            if (IsChecking) return;
+            IsChecking = true;
+            if (!silent) StatusMessage = "Проверка обновлений...";
+
+            try
+            {
+                using var client = new HttpClient();
+                client.DefaultRequestHeaders.Add("User-Agent", "CS2-LJTrainer-App");
+                client.Timeout = TimeSpan.FromSeconds(8);
+
+                var response = await client.GetAsync(ApiUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    string json = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+
+                    string tag = root.GetProperty("tag_name").GetString() ?? "";
+                    string name = root.TryGetProperty("name", out var nEl) ? (nEl.GetString() ?? tag) : tag;
+                    string body = root.TryGetProperty("body", out var bEl) ? (bEl.GetString() ?? "") : "";
+                    string htmlUrl = root.TryGetProperty("html_url", out var hEl) ? (hEl.GetString() ?? "") : "";
+
+                    string downloadUrl = "";
+                    string exeDownloadUrl = "";
+                    long size = 0;
+
+                    if (root.TryGetProperty("assets", out var assetsEl) && assetsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var asset in assetsEl.EnumerateArray())
+                        {
+                            string aName = asset.GetProperty("name").GetString() ?? "";
+                            string aUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                            long aSize = asset.TryGetProperty("size", out var sEl) ? sEl.GetInt64() : 0;
+
+                            if (aName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                            {
+                                downloadUrl = aUrl;
+                                size = aSize;
+                            }
+                            else if (aName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                exeDownloadUrl = aUrl;
+                                if (string.IsNullOrEmpty(downloadUrl)) size = aSize;
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(downloadUrl) && !string.IsNullOrEmpty(exeDownloadUrl))
+                    {
+                        downloadUrl = exeDownloadUrl;
+                    }
+
+                    LatestRelease = new GitHubReleaseInfo
+                    {
+                        TagName = tag,
+                        Name = name,
+                        Body = body,
+                        HtmlUrl = htmlUrl,
+                        DownloadUrl = downloadUrl,
+                        ExeDownloadUrl = exeDownloadUrl,
+                        SizeBytes = size
+                    };
+
+                    if (IsNewerVersion(tag, CurrentVersion))
+                    {
+                        UpdateAvailable = true;
+                        ShowUpdatePrompt = true;
+                        StatusMessage = $"Доступна новая версия: {tag}";
+                    }
+                    else
+                    {
+                        UpdateAvailable = false;
+                        if (!silent) StatusMessage = "У вас установлена последняя версия!";
+                    }
+                }
+                else
+                {
+                    if (!silent) StatusMessage = "Не удалось проверить обновления.";
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!silent) StatusMessage = "Ошибка соединения при проверке.";
+                Debug.WriteLine($"[UpdateManager] Check failed: {ex.Message}");
+            }
+            finally
+            {
+                IsChecking = false;
+            }
+        }
+
+        public static bool IsNewerVersion(string remoteTag, string currentTag)
+        {
+            try
+            {
+                string r = remoteTag.TrimStart('v', 'V', ' ');
+                string c = currentTag.TrimStart('v', 'V', ' ');
+
+                if (Version.TryParse(r, out var vRemote) && Version.TryParse(c, out var vCurrent))
+                {
+                    return vRemote > vCurrent;
+                }
+
+                return !string.Equals(remoteTag.Trim(), currentTag.Trim(), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static async Task PerformInAppUpdateAsync()
+        {
+            if (LatestRelease == null || string.IsNullOrEmpty(LatestRelease.DownloadUrl) || IsDownloading) return;
+
+            IsDownloading = true;
+            DownloadProgress = 0.05f;
+            StatusMessage = "Скачивание обновления...";
+
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            string tempDir = Path.Combine(Path.GetTempPath(), "LJTrainer_Update_" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(tempDir);
+
+            string downloadPath = Path.Combine(tempDir, "update_package" + (LatestRelease.DownloadUrl.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ? ".zip" : ".exe"));
+
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("User-Agent", "CS2-LJTrainer-App");
+                    using var response = await client.GetAsync(LatestRelease.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                    response.EnsureSuccessStatusCode();
+
+                    long totalBytes = response.Content.Headers.ContentLength ?? (LatestRelease.SizeBytes > 0 ? LatestRelease.SizeBytes : -1);
+
+                    using var stream = await response.Content.ReadAsStreamAsync();
+                    using var fileStream = new FileStream(downloadPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+                    byte[] buffer = new byte[81920];
+                    long totalRead = 0;
+                    int bytesRead;
+
+                    while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                        totalRead += bytesRead;
+                        if (totalBytes > 0)
+                        {
+                            DownloadProgress = Math.Clamp((float)totalRead / totalBytes, 0.05f, 0.95f);
+                        }
+                    }
+                }
+
+                DownloadProgress = 0.98f;
+                StatusMessage = "Подготовка к перезапуску...";
+
+                // Ensure user profile is completely flushed and saved before updating
+                UserProfile.Save();
+                AppConfig.Save();
+
+                string currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(appDir, "LJTrainer.exe");
+                int currentPid = Process.GetCurrentProcess().Id;
+
+                // Create self-contained updater script in temp directory
+                string updaterScriptPath = Path.Combine(tempDir, "apply_update.cmd");
+
+                string updaterCommands;
+                if (downloadPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Extract zip to temp staging folder first
+                    string extractedDir = Path.Combine(tempDir, "extracted");
+                    Directory.CreateDirectory(extractedDir);
+                    ZipFile.ExtractToDirectory(downloadPath, extractedDir, true);
+
+                    // If zip contained a nested folder, locate the actual binaries
+                    string sourceFilesDir = extractedDir;
+                    var subDirs = Directory.GetDirectories(extractedDir);
+                    if (subDirs.Length == 1 && File.Exists(Path.Combine(subDirs[0], "LJTrainer.exe")))
+                    {
+                        sourceFilesDir = subDirs[0];
+                    }
+
+                    // Windows Batch Script: Wait for process to exit, copy files (preserving user_profile.json!), restart app
+                    updaterCommands = $@"@echo off
+chcp 65001 >nul
+echo Обновление CS2 Long Jump Trainer...
+timeout /t 1 /nobreak >nul
+
+:wait_pid
+tasklist /FI ""PID eq {currentPid}"" 2>NUL | find /I /N ""LJTrainer"" >NUL
+if ""%ERRORLEVEL%""==""0"" (
+    timeout /t 1 /nobreak >nul
+    goto wait_pid
+)
+
+timeout /t 1 /nobreak >nul
+
+echo Копирование новых файлов...
+xcopy ""{sourceFilesDir}\*"" ""{appDir}"" /E /H /Y /Q /EXCLUDE:{tempDir}\exclude.txt
+
+echo Перезапуск приложения...
+start """" ""{currentExe}""
+exit
+";
+                    // Exclude user_profile.json and app_config.json so user data is NEVER overwritten!
+                    File.WriteAllText(Path.Combine(tempDir, "exclude.txt"), "user_profile.json\napp_config.json\n");
+                }
+                else
+                {
+                    // Single EXE update
+                    updaterCommands = $@"@echo off
+chcp 65001 >nul
+echo Обновление CS2 Long Jump Trainer...
+timeout /t 1 /nobreak >nul
+
+:wait_pid
+tasklist /FI ""PID eq {currentPid}"" 2>NUL | find /I /N ""LJTrainer"" >NUL
+if ""%ERRORLEVEL%""==""0"" (
+    timeout /t 1 /nobreak >nul
+    goto wait_pid
+)
+
+timeout /t 1 /nobreak >nul
+
+echo Замена исполняемого файла...
+copy /Y ""{downloadPath}"" ""{currentExe}""
+
+echo Перезапуск приложения...
+start """" ""{currentExe}""
+exit
+";
+                }
+
+                File.WriteAllText(updaterScriptPath, updaterCommands);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{updaterScriptPath}\"",
+                    UseShellExecute = true,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+
+                Process.Start(psi);
+                Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                IsDownloading = false;
+                StatusMessage = "Ошибка установки обновления: " + ex.Message;
+                Debug.WriteLine($"[UpdateManager] Update failed: {ex}");
+            }
+        }
+    }
+}

@@ -14,14 +14,44 @@ namespace LJTrainer.Core
     public class JumpTypePB
     {
         public string JumpType { get; set; } = "";
+        
+        // --- 1. Normal (Forwards) Record ---
         public float PBDist { get; set; } = 0f;
+        public float PBBlockDist { get; set; } = 0f;
         public int PBStrafes { get; set; } = 0;
         public float PBSync { get; set; } = 0f;
         public float PBPreSpeed { get; set; } = 0f;
         public float PBMaxSpeed { get; set; } = 0f;
         public DateTime PBDate { get; set; } = DateTime.MinValue;
 
-        // Previous PB distance and delta
+        // Dedicated Block PB (Forwards)
+        public float BlockPB { get; set; } = 0f;
+        public float BlockPBDistance { get; set; } = 0f;
+        public int BlockPBStrafes { get; set; } = 0;
+        public float BlockPBSync { get; set; } = 0f;
+        public DateTime BlockPBDate { get; set; } = DateTime.MinValue;
+
+        // --- 2. Sideways (SW) Record ---
+        public float SwPBDist { get; set; } = 0f;
+        public float SwPBBlockDist { get; set; } = 0f;
+        public int SwPBStrafes { get; set; } = 0;
+        public float SwPBSync { get; set; } = 0f;
+        public float SwPBPreSpeed { get; set; } = 0f;
+        public float SwPBMaxSpeed { get; set; } = 0f;
+        public DateTime SwPBDate { get; set; } = DateTime.MinValue;
+        public float SwBlockPB { get; set; } = 0f;
+
+        // --- 3. Backwards (BW) Record ---
+        public float BwPBDist { get; set; } = 0f;
+        public float BwPBBlockDist { get; set; } = 0f;
+        public int BwPBStrafes { get; set; } = 0;
+        public float BwPBSync { get; set; } = 0f;
+        public float BwPBPreSpeed { get; set; } = 0f;
+        public float BwPBMaxSpeed { get; set; } = 0f;
+        public DateTime BwPBDate { get; set; } = DateTime.MinValue;
+        public float BwBlockPB { get; set; } = 0f;
+
+        // Previous PB distance and delta (Forwards)
         public float PrevPBDist { get; set; } = 0f;
         public float PBDelta => (PrevPBDist > 0 && PBDist > PrevPBDist) ? (PBDist - PrevPBDist) : 0f;
 
@@ -40,6 +70,7 @@ namespace LJTrainer.Core
         public string TimestampStr { get; set; } = "";
         public string JumpType { get; set; } = "Long Jump";
         public float Distance { get; set; }
+        public float BlockDistance { get; set; } = 0f;
         public float PreviousDistance { get; set; }
         public float Delta => (PreviousDistance > 0 && Distance > PreviousDistance) ? (Distance - PreviousDistance) : 0f;
         public int Strafes { get; set; }
@@ -47,7 +78,16 @@ namespace LJTrainer.Core
         public float PreSpeed { get; set; }
         public float MaxSpeed { get; set; }
         public float Deviation { get; set; }
+        public float Airpath { get; set; }
+        public float AvgOverlap { get; set; }
+        public float AvgBadAngles { get; set; }
+        public float AvgDeadAir { get; set; }
+        public float AvgGainEff { get; set; }
+        public float AvgWidth { get; set; }
+        public float Height { get; set; }
         public string MapName { get; set; } = "";
+        public string RawConsoleLog { get; set; } = "";
+        public List<StrafeDetail> StrafeBreakdown { get; set; } = new();
     }
 
     public class RankHistoryRecord
@@ -79,19 +119,19 @@ namespace LJTrainer.Core
     public class CybershokeKzProfile
     {
         public bool IsLinked { get; set; } = false;
-        public string CybershokeNick { get; set; } = "issushenij";
-        public string SteamId64 { get; set; } = "76561199157353983";
+        public string CybershokeNick { get; set; } = "Player";
+        public string SteamId64 { get; set; } = "";
 
         // Dedicated KZ Leaderboard Metrics (from cybershoke.net/ru/cs2/leaderboard/kz/maps/...)
-        public int KzPosition { get; set; } = 643;
-        public int KzPoints { get; set; } = 8370;
-        public int KzMapsCompleted { get; set; } = 86;
-        public float KzMapsPercent { get; set; } = 52.13f;
-        public int KzTop100Count { get; set; } = 3;
+        public int KzPosition { get; set; } = 0;
+        public int KzPoints { get; set; } = 0;
+        public int KzMapsCompleted { get; set; } = 0;
+        public float KzMapsPercent { get; set; } = 0.0f;
+        public int KzTop100Count { get; set; } = 0;
 
-        public int MapsCompletedPro { get; set; } = 86;
+        public int MapsCompletedPro { get; set; } = 0;
         public int MapsCompletedTp { get; set; } = 0;
-        public int GlobalRankPosition { get; set; } = 643;
+        public int GlobalRankPosition { get; set; } = 0;
         public DateTime LastSyncTime { get; set; } = DateTime.Now;
 
         // Interactive list of all completed KZ maps from Leaderboard
@@ -102,6 +142,9 @@ namespace LJTrainer.Core
 
         // Chronological PB History Timeline Chain
         public List<PBHistoryRecord> PBHistory { get; set; } = new();
+
+        // Persistent full jump history (at least 150 jumps per jump type)
+        public Dictionary<string, List<CS2ConsoleEvent>> JumpHistoryPerType { get; set; } = new();
 
         // PB records per jump type
         public Dictionary<string, JumpTypePB> PBs { get; set; } = new();
@@ -122,7 +165,18 @@ namespace LJTrainer.Core
         [JsonIgnore] public double LastPBTime { get; set; } = 0;
         [JsonIgnore] public float PersonalBestLjDist => GetOrCreate("Long Jump").PBDist;
 
-        // The exact 7 Cybershoke CS2 KZ Jump Types
+        public List<CS2ConsoleEvent> GetJumpsForType(string type)
+        {
+            string norm = NormalizeJumpType(type);
+            if (!JumpHistoryPerType.TryGetValue(norm, out var list))
+            {
+                list = new List<CS2ConsoleEvent>();
+                JumpHistoryPerType[norm] = list;
+            }
+            return list;
+        }
+
+        // The exact 7 Fundamental Cybershoke CS2 KZ Jump Types
         public static readonly string[] StandardJumpTypes =
         {
             "Long Jump",
@@ -149,17 +203,18 @@ namespace LJTrainer.Core
         {
             "Long Jump"        => 240.0f,
             "Bunnyhop"         => 240.0f,
-            "Multi Bunnyhop"   => 240.0f,
-            "Weird Jump"       => 230.0f,
+            "Multi Bunnyhop"   => 250.0f,
+            "Weird Jump"       => 240.0f,
             "Ladder Jump"      => 140.0f,
-            "Ladderhop"        => 180.0f,
+            "Ladderhop"        => 140.0f,
             "Jumpbug"          => 240.0f,
-            _                  => 180.0f
+            _                  => 220.0f
         };
 
         public bool ProcessJump(CS2ConsoleEvent evt, bool isInitialScan = false)
         {
             string type = NormalizeJumpType(evt.JumpType);
+            evt.JumpType = type; // Keep normalized base type
             var pb = GetOrCreate(type);
 
             TotalAllJumps++;
@@ -169,14 +224,18 @@ namespace LJTrainer.Core
             bool isQuality = evt.Distance >= threshold && (evt.Strafes >= 2 || type == "Ladder Jump");
             evt.IsQualityJump = isQuality;
 
-            // Add to live feed (keep latest 50)
+            // 1. Add to live recent stream
             RecentJumps.Insert(0, evt);
-            if (RecentJumps.Count > 50) RecentJumps.RemoveAt(RecentJumps.Count - 1);
+            if (RecentJumps.Count > 1000) RecentJumps.RemoveAt(RecentJumps.Count - 1);
+
+            // 2. Add to persistent per-type history (minimum 150 jumps per type stored)
+            var typeHistory = GetJumpsForType(type);
+            typeHistory.Insert(0, evt);
+            if (typeHistory.Count > 200) typeHistory.RemoveAt(typeHistory.Count - 1);
 
             // Update running averages only for quality jumps (ignore filler/navigation jumps)
             if (isQuality)
             {
-                // Ensure Sync has a realistic valid value if server line missed telemetry
                 if (evt.Sync <= 0)
                 {
                     float baseSync = pb.AvgSync > 0 ? pb.AvgSync : (pb.PBSync > 0 ? pb.PBSync : 76.5f);
@@ -204,19 +263,82 @@ namespace LJTrainer.Core
                 if (evt.PreSpeed > 0) OverallAvgPreSpeed = OverallAvgPreSpeed * (1.0f - ow) + evt.PreSpeed * ow;
             }
 
-            // Check if this is a new PB
-            bool isPB = evt.Distance > pb.PBDist;
-            if (isPB)
-            {
-                float prevDist = pb.PBDist;
-                pb.PrevPBDist = prevDist;
-                pb.PBDist = evt.Distance;
-                pb.PBStrafes = evt.Strafes;
-                pb.PBSync = evt.Sync;
-                pb.PBPreSpeed = evt.PreSpeed;
-                pb.PBMaxSpeed = evt.MaxSpeed;
-                pb.PBDate = evt.Timestamp;
+            // Direction classification: Sideways, Backwards or Forwards (Default)
+            string dir = evt.JumpDirection?.Trim() ?? "Forwards";
+            bool isSideways = dir.StartsWith("Side", StringComparison.OrdinalIgnoreCase) || dir.Equals("SW", StringComparison.OrdinalIgnoreCase);
+            bool isBackwards = dir.StartsWith("Back", StringComparison.OrdinalIgnoreCase) || dir.Equals("BW", StringComparison.OrdinalIgnoreCase);
 
+            bool isAnyPB = false;
+            bool isBlockPB = false;
+
+            if (isSideways)
+            {
+                if (evt.Distance > pb.SwPBDist)
+                {
+                    pb.SwPBDist = evt.Distance;
+                    pb.SwPBBlockDist = evt.BlockDistance;
+                    pb.SwPBStrafes = evt.Strafes;
+                    pb.SwPBSync = evt.Sync;
+                    pb.SwPBPreSpeed = evt.PreSpeed;
+                    pb.SwPBMaxSpeed = evt.MaxSpeed;
+                    pb.SwPBDate = evt.Timestamp;
+                    isAnyPB = true;
+                }
+                if (evt.BlockDistance > 0 && evt.BlockDistance > pb.SwBlockPB)
+                {
+                    pb.SwBlockPB = evt.BlockDistance;
+                    isBlockPB = true;
+                }
+            }
+            else if (isBackwards)
+            {
+                if (evt.Distance > pb.BwPBDist)
+                {
+                    pb.BwPBDist = evt.Distance;
+                    pb.BwPBBlockDist = evt.BlockDistance;
+                    pb.BwPBStrafes = evt.Strafes;
+                    pb.BwPBSync = evt.Sync;
+                    pb.BwPBPreSpeed = evt.PreSpeed;
+                    pb.BwPBMaxSpeed = evt.MaxSpeed;
+                    pb.BwPBDate = evt.Timestamp;
+                    isAnyPB = true;
+                }
+                if (evt.BlockDistance > 0 && evt.BlockDistance > pb.BwBlockPB)
+                {
+                    pb.BwBlockPB = evt.BlockDistance;
+                    isBlockPB = true;
+                }
+            }
+            else
+            {
+                // Forwards Jump
+                if (evt.BlockDistance > 0 && evt.BlockDistance > pb.BlockPB)
+                {
+                    pb.BlockPB = evt.BlockDistance;
+                    pb.BlockPBDistance = evt.Distance;
+                    pb.BlockPBStrafes = evt.Strafes;
+                    pb.BlockPBSync = evt.Sync;
+                    pb.BlockPBDate = evt.Timestamp;
+                    isBlockPB = true;
+                }
+
+                if (evt.Distance > pb.PBDist)
+                {
+                    float prevDist = pb.PBDist;
+                    pb.PrevPBDist = prevDist;
+                    pb.PBDist = evt.Distance;
+                    pb.PBBlockDist = evt.BlockDistance;
+                    pb.PBStrafes = evt.Strafes;
+                    pb.PBSync = evt.Sync;
+                    pb.PBPreSpeed = evt.PreSpeed;
+                    pb.PBMaxSpeed = evt.MaxSpeed;
+                    pb.PBDate = evt.Timestamp;
+                    isAnyPB = true;
+                }
+            }
+
+            if (isAnyPB || isBlockPB)
+            {
                 evt.IsPB = true;
                 LastPBType = type;
                 LastPBDistance = evt.Distance;
@@ -225,15 +347,25 @@ namespace LJTrainer.Core
                 PBHistory.Insert(0, new PBHistoryRecord
                 {
                     TimestampStr = evt.Timestamp.ToString("dd.MM.yyyy HH:mm"),
-                    JumpType = type,
+                    JumpType = isSideways ? $"{type} (SW)" : (isBackwards ? $"{type} (BW)" : type),
                     Distance = evt.Distance,
-                    PreviousDistance = prevDist,
+                    BlockDistance = evt.BlockDistance,
+                    PreviousDistance = 0,
                     Strafes = evt.Strafes,
                     Sync = evt.Sync,
                     PreSpeed = evt.PreSpeed,
                     MaxSpeed = evt.MaxSpeed,
                     Deviation = evt.Deviation,
-                    MapName = evt.MapName
+                    Airpath = evt.Airpath,
+                    AvgOverlap = evt.AvgOverlap,
+                    AvgBadAngles = evt.AvgBadAngles,
+                    AvgDeadAir = evt.AvgDeadAir,
+                    AvgGainEff = evt.AvgGainEff,
+                    AvgWidth = evt.AvgWidth,
+                    Height = evt.Height,
+                    MapName = evt.MapName,
+                    RawConsoleLog = evt.RawLine,
+                    StrafeBreakdown = new List<StrafeDetail>(evt.StrafeBreakdown)
                 });
                 if (PBHistory.Count > 100) PBHistory.RemoveAt(PBHistory.Count - 1);
 
@@ -246,7 +378,7 @@ namespace LJTrainer.Core
                 }
             }
 
-            return isPB;
+            return isAnyPB || isBlockPB;
         }
 
         public (bool Success, string Summary) ImportFromText(string text)
@@ -407,10 +539,30 @@ namespace LJTrainer.Core
         }
 
 
-        public static string NormalizeJumpType(string raw)
+        public static string NormalizeJumpType(string raw, string? direction = null)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "Long Jump";
             string s = raw.Trim();
+
+            // Check JumpDirection if present in console
+            if (!string.IsNullOrEmpty(direction))
+            {
+                string dir = direction.Trim();
+                if (dir.Equals("Sideways", StringComparison.OrdinalIgnoreCase) || dir.Equals("SW", StringComparison.OrdinalIgnoreCase) || dir.Equals("Side", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (s.Contains("Bunny", StringComparison.OrdinalIgnoreCase) || s.Contains("BH", StringComparison.OrdinalIgnoreCase)) return "Sideways Jump";
+                    return "Sideways Jump";
+                }
+                if (dir.Equals("Backwards", StringComparison.OrdinalIgnoreCase) || dir.Equals("BW", StringComparison.OrdinalIgnoreCase) || dir.Equals("Back", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (s.Contains("Bunny", StringComparison.OrdinalIgnoreCase) || s.Contains("BH", StringComparison.OrdinalIgnoreCase)) return "Backwards Jump";
+                    return "Backwards Jump";
+                }
+            }
+
+            // Check raw string text
+            if (s.StartsWith("Sideway", StringComparison.OrdinalIgnoreCase) || s.Equals("SW", StringComparison.OrdinalIgnoreCase) || s.Contains("Sideways", StringComparison.OrdinalIgnoreCase) || s.Contains("SWLJ", StringComparison.OrdinalIgnoreCase)) return "Sideways Jump";
+            if (s.StartsWith("Backward", StringComparison.OrdinalIgnoreCase) || s.Equals("BW", StringComparison.OrdinalIgnoreCase) || s.Contains("Backwards", StringComparison.OrdinalIgnoreCase) || s.Contains("BWLJ", StringComparison.OrdinalIgnoreCase)) return "Backwards Jump";
             if (s.Equals("Long Jump", StringComparison.OrdinalIgnoreCase) || s.Equals("LJ", StringComparison.OrdinalIgnoreCase)) return "Long Jump";
             if (s.StartsWith("Multi", StringComparison.OrdinalIgnoreCase) || s.Equals("MBH", StringComparison.OrdinalIgnoreCase) || s.Equals("MBhop", StringComparison.OrdinalIgnoreCase)) return "Multi Bunnyhop";
             if (s.StartsWith("Bunny", StringComparison.OrdinalIgnoreCase) || s.Equals("BH", StringComparison.OrdinalIgnoreCase) || s.Equals("Bhop", StringComparison.OrdinalIgnoreCase)) return "Bunnyhop";
@@ -430,6 +582,8 @@ namespace LJTrainer.Core
             "Ladder Jump"      => ("Ladder Jump",     "LAD",  new Color(190, 130, 255, 255)),
             "Ladderhop"        => ("Ladderhop",       "LBH",  new Color(160, 100, 240, 255)),
             "Jumpbug"          => ("Jumpbug",         "JB",   new Color(255, 90, 160, 255)),
+            "Sideways Jump"    => ("Sideways",        "SW",   new Color(0, 230, 255, 255)),
+            "Backwards Jump"   => ("Backwards",       "BW",   new Color(255, 100, 100, 255)),
             _                  => (type,              type[..Math.Min(3, type.Length)].ToUpper(), Theme.TextMuted)
         };
     }
@@ -471,8 +625,10 @@ namespace LJTrainer.Core
         public static void OpenCybershokeProfileInBrowser()
         {
             var cs = UserProfile.Instance.Cybershoke;
-            string sid = !string.IsNullOrEmpty(cs.SteamId64) ? cs.SteamId64 : "76561199157353983";
-            string url = $"https://cybershoke.net/ru/cs2/leaderboard/kz/maps/{sid}";
+            string? sid = !string.IsNullOrEmpty(cs.SteamId64) ? cs.SteamId64 : CS2ConfigImporter.DetectLocalSteamId64();
+            string url = !string.IsNullOrEmpty(sid) 
+                ? $"https://cybershoke.net/ru/cs2/leaderboard/kz/maps/{sid}"
+                : "https://cybershoke.net/ru/servers/kz";
             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
         }
 

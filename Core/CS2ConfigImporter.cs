@@ -154,5 +154,113 @@ namespace LJTrainer.Core
                 Message = "Параметр sensitivity не найден в файле."
             };
         }
+
+        public static string? DetectLocalSteamId64(string? preferredNick = null)
+        {
+            var steamRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+                    if (key?.GetValue("SteamPath") is string regPath && !string.IsNullOrEmpty(regPath))
+                    {
+                        steamRoots.Add(regPath.Replace('/', '\\'));
+                    }
+                }
+                catch { }
+            }
+
+            string[] standardDrives = { "C", "D", "E", "F", "G" };
+            foreach (var d in standardDrives)
+            {
+                steamRoots.Add($@"{d}:\Program Files (x86)\Steam");
+                steamRoots.Add($@"{d}:\Program Files\Steam");
+                steamRoots.Add($@"{d}:\Steam");
+                steamRoots.Add($@"{d}:\SteamLibrary");
+            }
+
+            // 1. Check Steam config\loginusers.vdf for exact PersonaName match or MostRecent=1 / AutoLogin=1
+            foreach (var root in steamRoots)
+            {
+                string loginUsersPath = Path.Combine(root, "config", "loginusers.vdf");
+                if (File.Exists(loginUsersPath))
+                {
+                    try
+                    {
+                        string content = File.ReadAllText(loginUsersPath);
+                        // Regex match all user blocks
+                        var matches = Regex.Matches(content, @"""(765611\d+)""\s*\{([^}]+)\}", RegexOptions.Singleline);
+                        
+                        string? mostRecentSid = null;
+                        string? personaMatchedSid = null;
+
+                        foreach (Match m in matches)
+                        {
+                            string sid = m.Groups[1].Value;
+                            string block = m.Groups[2].Value;
+
+                            var pMatch = Regex.Match(block, @"""PersonaName""\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                            string persona = pMatch.Success ? pMatch.Groups[1].Value : "";
+
+                            // If preferredNick is given, match exact PersonaName
+                            if (!string.IsNullOrEmpty(preferredNick) && !string.IsNullOrEmpty(persona))
+                            {
+                                if (persona.Equals(preferredNick, StringComparison.OrdinalIgnoreCase) ||
+                                    preferredNick.Contains(persona, StringComparison.OrdinalIgnoreCase) ||
+                                    persona.Contains(preferredNick, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    personaMatchedSid = sid;
+                                }
+                            }
+
+                            if (block.Contains("\"MostRecent\"\t\t\"1\"") || block.Contains("\"MostRecent\" \"1\"") ||
+                                block.Contains("\"AutoLogin\"\t\t\"1\"") || block.Contains("\"AutoLogin\" \"1\""))
+                            {
+                                mostRecentSid = sid;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(personaMatchedSid))
+                            return personaMatchedSid;
+
+                        if (!string.IsNullOrEmpty(mostRecentSid))
+                            return mostRecentSid;
+                    }
+                    catch { }
+                }
+            }
+
+            // 2. Fallback to userdata folders ordered by last modification
+            foreach (var root in steamRoots)
+            {
+                string userdata = Path.Combine(root, "userdata");
+                if (Directory.Exists(userdata))
+                {
+                    try
+                    {
+                        var userDirs = Directory.GetDirectories(userdata);
+                        var orderedDirs = userDirs
+                            .Select(d => new DirectoryInfo(d))
+                            .Where(d => uint.TryParse(d.Name, out uint aid) && aid > 0)
+                            .OrderByDescending(d => d.LastWriteTime)
+                            .ToList();
+
+                        foreach (var dir in orderedDirs)
+                        {
+                            if (uint.TryParse(dir.Name, out uint accountId32))
+                            {
+                                ulong steamId64 = 76561197960265728UL + accountId32;
+                                return steamId64.ToString();
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            return null;
+        }
     }
 }

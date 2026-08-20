@@ -16,12 +16,19 @@ namespace LJTrainer.UI
         // Steam Avatar Texture cache
         private Texture2D? _avatarTexture = null;
         private bool _avatarLoaded = false;
+        private string _lastLoadedAvatarSid = "";
 
         // Rank & PB History Timeline Chain Popups
         private bool _showRankHistoryModal = false;
         private bool _showPBHistoryModal = false;
         private float _pbHistoryScrollY = 0f;
         private string _selectedPbHistoryJumpType = "All";
+
+        // Raw Console Log Inspection Modal
+        private bool _showLogModal = false;
+        private string _selectedLogTitle = "";
+        private string _selectedLogContent = "";
+        private List<StrafeDetail>? _selectedLogBreakdown = null;
 
         // Nickname & manual sync popup state
         private bool _isEditingNick = false;
@@ -33,6 +40,8 @@ namespace LJTrainer.UI
 
         // Scroll states
         private float _pbScrollY = 0f;
+        private int _pbViewMode = 0; // 0 = Дистанция (All PBs), 1 = Рекорды Блоков (Block PBs)
+        private int _pbDirFilter = 0; // 0 = ОБЫЧНЫЙ (FWD), 1 = БОКОМ (SW), 2 = СПИНОЙ (BW)
         private float _mapsScrollY = 0f;
         private float _analyticsScrollY = 0f;
         private float _rankHistoryScrollY = 0f;
@@ -46,6 +55,7 @@ namespace LJTrainer.UI
         // Analytics graph state (Per Jump Type!)
         private string _selectedGraphJumpType = "Long Jump"; // Filter graph strictly per jump type
         private int _graphMetric = 0; // 0 = Distance (Units), 1 = Sync (%), 2 = Pre-Speed (u/s), 3 = Overlap (ms)
+        private int _graphSampleSize = 20; // 10, 20, 50, 100 jumps sample size
         private int _selectedTrajectoryJumpIndex = -2; // -2 = Auto-follow freshest jump, -1 = Average ghost only, 0..N = specific jump
 
         // Tab transition animation state
@@ -54,14 +64,35 @@ namespace LJTrainer.UI
         private float _targetTabIndicatorX = 16f;
         private float _tabIndicatorW = 250f;
 
-        private void EnsureAvatarLoaded(string steamId64)
+        public void OnJumpCaptured(CS2ConsoleEvent evt)
         {
-            if (_avatarLoaded) return;
+            if (!evt.IsJumpStat || evt.Distance <= 140f) return;
+            string norm = CybershokeKzProfile.NormalizeJumpType(evt.JumpType);
+            _selectedGraphJumpType = norm;
+            _selectedTrajectoryJumpIndex = -2; // Follow freshest jump only inside trajectory tab
+            // Stay on current tab (do not force switch if user is browsing PBs or Maps)
+        }
+
+        public Texture2D? AvatarTexture => _avatarTexture;
+
+        public void EnsureAvatarLoaded(string steamId64, string? nick = null)
+        {
+            string? targetSid = !string.IsNullOrEmpty(steamId64) ? steamId64 : CS2ConfigImporter.DetectLocalSteamId64(nick);
+            if (string.IsNullOrEmpty(targetSid)) return;
+
+            if (_avatarLoaded && _lastLoadedAvatarSid == targetSid) return;
+            
+            if (_avatarTexture.HasValue && _avatarTexture.Value.Id > 0)
+            {
+                Raylib.UnloadTexture(_avatarTexture.Value);
+                _avatarTexture = null;
+            }
+
             _avatarLoaded = true;
+            _lastLoadedAvatarSid = targetSid;
 
             try
             {
-                string targetSid = !string.IsNullOrEmpty(steamId64) ? steamId64 : "76561199157353983";
                 string[] searchPaths = new[]
                 {
                     $@"C:\Program Files (x86)\Steam\config\avatarcache\{targetSid}.png",
@@ -89,6 +120,36 @@ namespace LJTrainer.UI
             catch { }
         }
 
+        public void DrawProfileAvatarIcon(int cx, int cy, int size, Color fallbackColor)
+        {
+            var cs = UserProfile.Instance.Cybershoke;
+            string nick = !string.IsNullOrEmpty(cs.CybershokeNick) ? cs.CybershokeNick : "issushenij";
+            EnsureAvatarLoaded(cs.SteamId64, nick);
+
+            if (_avatarTexture.HasValue && _avatarTexture.Value.Id > 0)
+            {
+                var tex = _avatarTexture.Value;
+                // Render avatar edge-to-edge across the entire button
+                int fullSize = (int)(32 * AppConfig.Instance.UiScale);
+                int x = cx - fullSize / 2;
+                int y = cy - fullSize / 2;
+
+                Raylib.DrawTexturePro(
+                    tex,
+                    new Rectangle(0, 0, tex.Width, tex.Height),
+                    new Rectangle(x, y, fullSize, fullSize),
+                    Vector2.Zero, 0f, Color.White);
+
+                // Subtle inner border & Online indicator dot in bottom right
+                Raylib.DrawRectangleLines(x, y, fullSize, fullSize, new Color(Theme.NeonCyan.R, Theme.NeonCyan.G, Theme.NeonCyan.B, (byte)160));
+                Raylib.DrawCircle(x + fullSize - 4, y + fullSize - 4, 3.5f, Theme.NeonGreen);
+            }
+            else
+            {
+                Theme.DrawProfileIcon(cx, cy, size, fallbackColor);
+            }
+        }
+
         public void Draw(int screenWidth, int screenHeight)
         {
             if (!IsOpen) return;
@@ -99,7 +160,14 @@ namespace LJTrainer.UI
             float scale = cfg.UiScale;
             Vector2 mouse = Raylib.GetMousePosition();
 
-            EnsureAvatarLoaded(cs.SteamId64);
+            string myNick = !string.IsNullOrEmpty(cs.CybershokeNick) ? cs.CybershokeNick : "issushenij";
+            string detectedSid = CS2ConfigImporter.DetectLocalSteamId64(myNick) ?? cs.SteamId64;
+            if (!string.IsNullOrEmpty(detectedSid) && cs.SteamId64 != detectedSid)
+            {
+                cs.SteamId64 = detectedSid;
+            }
+
+            EnsureAvatarLoaded(cs.SteamId64, myNick);
 
             // Fullscreen solid high-tech dark background
             Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color(9, 12, 17, 255));
@@ -142,10 +210,10 @@ namespace LJTrainer.UI
             }
 
             int nameX = avX + avSize + 12;
-            string myNick = !string.IsNullOrEmpty(cs.CybershokeNick) ? cs.CybershokeNick : "issushenij";
             Theme.DrawText(myNick, nameX, headerH / 2 - (int)(12 * scale), 16, Theme.TextWhite);
-            string sidStr = !string.IsNullOrEmpty(cs.SteamId64) ? $"STEAM: {cs.SteamId64}" : "STEAM: 76561199157353983";
-            Theme.DrawText(sidStr, nameX, headerH / 2 + (int)(2 * scale), 9, Theme.TextMuted);
+            
+            string sidStr = !string.IsNullOrEmpty(cs.SteamId64) ? $"STEAM: {cs.SteamId64}" : "STEAM: [НЕ ПРИВЯЗАН - НАЖМИТЕ ДЛЯ ВВОДА]";
+            Theme.DrawText(sidStr, nameX, headerH / 2 + (int)(2 * scale), 9, !string.IsNullOrEmpty(cs.SteamId64) ? Theme.TextMuted : Theme.NeonOrange);
 
             int leftTotalW = nameX + (int)(160 * scale);
 
@@ -159,12 +227,16 @@ namespace LJTrainer.UI
             int syncBtnX = closeBtnX - rightGap - syncBtnW;
             int btnY = (headerH - closeBtnH) / 2;
 
-            bool isModalActive = _showRankHistoryModal || _showPBHistoryModal || _isEditingNick;
+            bool isModalActive = _showRankHistoryModal || _showPBHistoryModal || _showLogModal || _isEditingNick;
 
             if (Theme.DrawButton(closeBtnX, btnY, closeBtnW, closeBtnH, "НАЗАД [Esc]", false, 11, enabled: !isModalActive) ||
                 Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.P))
             {
-                if (_showPBHistoryModal)
+                if (_showLogModal)
+                {
+                    _showLogModal = false;
+                }
+                else if (_showPBHistoryModal)
                 {
                     _showPBHistoryModal = false;
                 }
@@ -210,11 +282,16 @@ namespace LJTrainer.UI
                 int badgeH = (int)(34 * scale);
                 int badgeY = (headerH - badgeH) / 2;
 
-                int kzPos = cs.KzPosition > 0 ? cs.KzPosition : 643;
-                int kzPts = cs.KzPoints > 0 ? cs.KzPoints : 8370;
-                int mapsCount = cs.CompletedMaps.Count > 0 ? cs.CompletedMaps.Count : (cs.KzMapsCompleted > 0 ? cs.KzMapsCompleted : 86);
-                float mapsPct = cs.KzMapsPercent > 0 ? cs.KzMapsPercent : 52.1f;
-                int top100 = cs.KzTop100Count > 0 ? cs.KzTop100Count : 3;
+                int kzPos = cs.KzPosition;
+                int kzPts = cs.KzPoints;
+                int mapsCount = cs.CompletedMaps.Count > 0 ? cs.CompletedMaps.Count : cs.KzMapsCompleted;
+                float mapsPct = cs.KzMapsPercent;
+                int top100 = cs.KzTop100Count;
+
+                string posStr = kzPos > 0 ? $"#{kzPos} ▶" : "-";
+                string ptsStr = kzPts > 0 ? $"{kzPts:N0} PTS" : "-";
+                string mapsStr = mapsCount > 0 ? $"{mapsCount} ({mapsPct:F1}%)" : "-";
+                string topStr = top100 > 0 ? $"{top100} КАРТЫ" : "-";
 
                 if (availMidW >= 460)
                 {
@@ -222,24 +299,24 @@ namespace LJTrainer.UI
                     int curBx = leftTotalW + 12;
 
                     // KZ Rank Badge is CLICKABLE -> opens Rank Timeline Chain
-                    if (DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "KZ РАНГ", $"#{kzPos} ▶", Theme.NeonGold, clickable: !isModalActive))
+                    if (DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "KZ РАНГ", posStr, Theme.NeonGold, clickable: !isModalActive && kzPos > 0))
                     {
                         _showRankHistoryModal = true;
                     }
 
-                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "ОЧКИ КАРТ", $"{kzPts:N0} PTS", Theme.NeonCyan, clickable: false);
-                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "КАРТЫ KZ", $"{mapsCount} ({mapsPct:F1}%)", Theme.NeonGreen, clickable: false);
-                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "ТОП-100", $"{top100} КАРТЫ", Theme.NeonOrange, clickable: false);
+                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "ОЧКИ КАРТ", ptsStr, Theme.NeonCyan, clickable: false);
+                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "КАРТЫ KZ", mapsStr, Theme.NeonGreen, clickable: false);
+                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "ТОП-100", topStr, Theme.NeonOrange, clickable: false);
                 }
                 else
                 {
                     int badgeW = (availMidW - 12) / 2;
                     int curBx = leftTotalW + 6;
-                    if (DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "KZ РАНГ", $"#{kzPos} ▶", Theme.NeonGold, clickable: !isModalActive))
+                    if (DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "KZ РАНГ", posStr, Theme.NeonGold, clickable: !isModalActive && kzPos > 0))
                     {
                         _showRankHistoryModal = true;
                     }
-                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "ОЧКИ", $"{kzPts:N0} PTS", Theme.NeonCyan, clickable: false);
+                    DrawHeaderBadge(ref curBx, badgeY, badgeW, badgeH, "ОЧКИ", ptsStr, Theme.NeonCyan, clickable: false);
                 }
             }
 
@@ -251,7 +328,10 @@ namespace LJTrainer.UI
             Raylib.DrawRectangle(0, tabsBarY, screenWidth, tabsBarH, new Color(13, 17, 24, 255));
             Raylib.DrawLine(0, tabsBarY + tabsBarH, screenWidth, tabsBarY + tabsBarH, Theme.Border);
 
-            int tabBtnW = (int)(250 * scale);
+            // Responsive tab button width: calculate based on screenWidth with max clamp
+            int availTabsAreaW = screenWidth - 32;
+            int tabGap = 8;
+            int tabBtnW = Math.Clamp((availTabsAreaW - tabGap * 2) / 3, 180, (int)(320 * scale));
             int tabBtnH = (int)(32 * scale);
             int tabBtnY = tabsBarY + (tabsBarH - tabBtnH) / 2;
 
@@ -259,11 +339,11 @@ namespace LJTrainer.UI
             int targetTabX = _activeTab switch
             {
                 1 => 16,
-                2 => 16 + tabBtnW + 8,
-                _ => 16 + (tabBtnW + 8) * 2
+                2 => 16 + tabBtnW + tabGap,
+                _ => 16 + (tabBtnW + tabGap) * 2
             };
             _targetTabIndicatorX = targetTabX;
-            _tabIndicatorX += (_targetTabIndicatorX - _tabIndicatorX) * 0.22f; // Smooth spring-like lerp
+            _tabIndicatorX += (_targetTabIndicatorX - _tabIndicatorX) * 0.25f; // Smooth spring-like lerp
             _tabIndicatorW = tabBtnW;
 
             // Draw glowing sliding pill under active tab
@@ -272,21 +352,21 @@ namespace LJTrainer.UI
 
             int curTabX = 16;
 
-            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "1. РЕКОРДЫ ПРЫЖКОВ (PB)", _activeTab == 1, 11, enabled: !isModalActive))
+            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "1. РЕКОРДЫ ПРЫЖКОВ (PB)", _activeTab == 1, 10, enabled: !isModalActive))
             {
                 if (_activeTab != 1) { _activeTab = 1; _tabTransitionProgress = 0.0f; }
             }
-            curTabX += tabBtnW + 8;
+            curTabX += tabBtnW + tabGap;
 
             int mCount = cs.CompletedMaps.Count > 0 ? cs.CompletedMaps.Count : 86;
             string mapsTabTitle = $"2. КАРТЫ KZ ({mCount} ПРОЙДЕНО)";
-            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, mapsTabTitle, _activeTab == 2, 11, enabled: !isModalActive))
+            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, mapsTabTitle, _activeTab == 2, 10, enabled: !isModalActive))
             {
                 if (_activeTab != 2) { _activeTab = 2; _tabTransitionProgress = 0.0f; }
             }
-            curTabX += tabBtnW + 8;
+            curTabX += tabBtnW + tabGap;
 
-            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "3. АНАЛИЗ И ПЛАН ТРЕНИРОВОК", _activeTab == 0, 11, enabled: !isModalActive))
+            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "3. АНАЛИЗ И ПЛАН ТРЕНИРОВОК", _activeTab == 0, 10, enabled: !isModalActive))
             {
                 if (_activeTab != 0) { _activeTab = 0; _tabTransitionProgress = 0.0f; }
             }
@@ -344,6 +424,12 @@ namespace LJTrainer.UI
             if (_showPBHistoryModal)
             {
                 DrawPBHistoryModal(screenWidth, screenHeight, scale, prof);
+            }
+
+            // Raw Console Log Inspection Modal
+            if (_showLogModal)
+            {
+                DrawConsoleLogModal(screenWidth, screenHeight, scale);
             }
 
             if (_isEditingNick)
@@ -501,9 +587,7 @@ namespace LJTrainer.UI
                 // Top Subtle Separator
                 Raylib.DrawLine(cardX + 16, ny + (int)(32 * scale), cardX + cardW - 16, ny + (int)(32 * scale), new Color(255, 255, 255, 18));
 
-                // -------------------------------------------------------------
-                // ROW 1 (Y = ny + 8): [CODE] TYPE FULL NAME | TIMESTAMP | MAP PILL
-                // -------------------------------------------------------------
+                // Row 1 (Y = ny + 8): [CODE] TYPE FULL NAME | TIMESTAMP | MAP PILL
                 int bW = (int)(42 * scale);
                 int bH = (int)(18 * scale);
                 Raylib.DrawRectangle(cardX + 16, ny + 7, bW, bH, new Color(accCol.R, accCol.G, accCol.B, (byte)35));
@@ -525,18 +609,39 @@ namespace LJTrainer.UI
                 Raylib.DrawRectangleLines(mapX, ny + 7, mapW, mapH, new Color(0, 229, 255, 70));
                 Theme.DrawText(mapText, mapX + 8, ny + 9, 9, Theme.NeonCyan);
 
+                int rightPillAnchor = mapX - 8;
+
                 if (isLatest)
                 {
                     string latestTag = "ТЕКУЩИЙ РЕКОРД";
                     int tagW = Theme.MeasureText(latestTag, 8) + 14;
-                    int tagX = mapX - tagW - 8;
+                    int tagX = rightPillAnchor - tagW;
                     Raylib.DrawRectangle(tagX, ny + 7, tagW, mapH, new Color(255, 215, 0, 30));
                     Raylib.DrawRectangleLines(tagX, ny + 7, tagW, mapH, Theme.NeonGold);
                     Theme.DrawText(latestTag, tagX + 7, ny + 9, 8, Theme.NeonGold);
+                    rightPillAnchor = tagX - 8;
+                }
+
+                // Open Raw Console Log Button (Relocated next to PB / Map pill)
+                int logBtnW = (int)(95 * scale);
+                int logBtnH = (int)(18 * scale);
+                int logBtnX = rightPillAnchor - logBtnW;
+                int logBtnY = ny + 7;
+
+                string logBtnText = "ЛОГ КОНСОЛИ";
+                if (Theme.DrawButton(logBtnX, logBtnY, logBtnW, logBtnH, logBtnText, false, 8, enabled: true))
+                {
+                    _showLogModal = true;
+                    string blockTitle = rec.BlockDistance > 0 ? $" [БЛОК: {rec.BlockDistance:F0}]" : "";
+                    _selectedLogTitle = $"{rec.JumpType.ToUpper()}{blockTitle} — {rec.Distance:F2}u ({rec.TimestampStr})";
+                    _selectedLogContent = !string.IsNullOrEmpty(rec.RawConsoleLog) 
+                        ? rec.RawConsoleLog 
+                        : $"[CS2 Console Watcher] {rec.Distance:F4} units | {rec.Strafes} str | {rec.Sync:F1}% sync | {rec.PreSpeed:F1} pre | {rec.MaxSpeed:F1} max\nКарта: {rec.MapName}\nОтклонение (Deviation): {rec.Deviation:F2}\nAirpath: {rec.Airpath:F3}\nOverlap: {rec.AvgOverlap:F1}ms | Bad Angles: {rec.AvgBadAngles:F1}%";
+                    _selectedLogBreakdown = rec.StrafeBreakdown;
                 }
 
                 // -------------------------------------------------------------
-                // ROW 2 & 3: LEFT SIDE = DISTANCE & DELTA; RIGHT SIDE = 4 TELEMETRY TILES
+                // ROW 2 & 3: LEFT SIDE = DISTANCE & DELTA & BLOCK; RIGHT SIDE = 4 TELEMETRY TILES
                 // -------------------------------------------------------------
                 int mainContentY = ny + (int)(38 * scale);
 
@@ -545,6 +650,19 @@ namespace LJTrainer.UI
                 Theme.DrawText(distNum, cardX + 16, mainContentY, 20, isLatest ? Theme.NeonGold : Theme.NeonCyan);
                 int numW = Theme.MeasureText(distNum, 20);
                 Theme.DrawText("units", cardX + 16 + numW + 4, mainContentY + 8, 9, Theme.TextDim);
+
+                // Block tag right next to units if present
+                if (rec.BlockDistance > 0)
+                {
+                    var (bTier, _, bCol, _) = GetBlockTier(rec.JumpType, rec.BlockDistance);
+                    string blkStr = $"БЛОК: {rec.BlockDistance:F0} [{bTier}]";
+                    int blkW = Theme.MeasureText(blkStr, 8) + 12;
+                    int blkH = (int)(16 * scale);
+                    int blkX = cardX + 16 + numW + 36;
+                    Raylib.DrawRectangle(blkX, mainContentY + 6, blkW, blkH, new Color(bCol.R, bCol.G, bCol.B, (byte)35));
+                    Raylib.DrawRectangleLines(blkX, mainContentY + 6, blkW, blkH, bCol);
+                    Theme.DrawText(blkStr, blkX + 6, mainContentY + 8, 8, bCol);
+                }
 
                 // Delta Badge right below distance
                 int deltaY = mainContentY + (int)(27 * scale);
@@ -755,6 +873,137 @@ namespace LJTrainer.UI
             }
         }
 
+        private void DrawConsoleLogModal(int screenWidth, int screenHeight, float scale)
+        {
+            Vector2 mouse = Raylib.GetMousePosition();
+
+            // Dark blocking backdrop
+            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color(4, 7, 12, 240));
+
+            int popW = Math.Min((int)(820 * scale), screenWidth - 30);
+            int popH = Math.Min((int)(540 * scale), screenHeight - 40);
+            int popX = (screenWidth - popW) / 2;
+            int popY = (screenHeight - popH) / 2;
+
+            Theme.DrawGlassPanel(popX, popY, popW, popH);
+            Raylib.DrawRectangleLines(popX, popY, popW, popH, Theme.NeonCyan);
+
+            // Modal Header
+            int headH = (int)(42 * scale);
+            Raylib.DrawRectangle(popX, popY, popW, headH, Theme.BgPanelHeader);
+            Raylib.DrawLine(popX, popY + headH, popX + popW, popY + headH, Theme.Border);
+
+            Theme.DrawText("ЛОГ ТЕЛЕМЕТРИИ ПРЫЖКА (CS2 CONSOLE & CKZ)", popX + 16, popY + (headH - Theme.GetScaledFontSize(12)) / 2, 12, Theme.NeonCyan);
+
+            // Close [X] Button
+            int closeBtnSize = (int)(26 * scale);
+            int closeBtnX = popX + popW - closeBtnSize - 10;
+            int closeBtnY = popY + (headH - closeBtnSize) / 2;
+            if (Theme.DrawButton(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, "[X]", false, 10, enabled: true))
+            {
+                _showLogModal = false;
+            }
+
+            int contentY = popY + headH + 12;
+            int contentW = popW - 32;
+            int contentX = popX + 16;
+
+            // Header Jump Title Line
+            Theme.DrawText(_selectedLogTitle, contentX, contentY, 13, Theme.NeonGold);
+            contentY += (int)(24 * scale);
+
+            // COMPACT STRUCTURED TABLE
+            if (_selectedLogBreakdown != null && _selectedLogBreakdown.Count > 0)
+            {
+                int tableH = Math.Min((int)(190 * scale), (popY + popH - contentY) / 2);
+                Raylib.DrawRectangle(contentX, contentY, contentW, tableH, new Color(9, 13, 20, 255));
+                Raylib.DrawRectangleLines(contentX, contentY, contentW, tableH, Theme.Border);
+
+                // Dynamically sized columns
+                int col0W = (int)(42 * scale);  // #
+                int col1W = (int)(68 * scale);  // Sync
+                int col2W = (int)(80 * scale);  // Gain
+                int col3W = (int)(80 * scale);  // Loss
+                int col4W = (int)(85 * scale);  // MaxSpeed
+                int col5W = (int)(75 * scale);  // Airtime
+                int col6W = (int)(75 * scale);  // Overlap
+                int col7W = (int)(75 * scale);  // BadAngle
+                int col8W = contentW - (col0W + col1W + col2W + col3W + col4W + col5W + col6W + col7W); // Width / Status
+
+                // Table Header Row
+                int thH = (int)(22 * scale);
+                Raylib.DrawRectangle(contentX, contentY, contentW, thH, new Color(16, 23, 34, 255));
+                Raylib.DrawLine(contentX, contentY + thH, contentX + contentW, contentY + thH, Theme.Border);
+
+                int hx = contentX + 8;
+                Theme.DrawText("СТР", hx, contentY + 5, 8, Theme.NeonCyan); hx += col0W;
+                Theme.DrawText("СИНХРА", hx, contentY + 5, 8, Theme.TextMuted); hx += col1W;
+                Theme.DrawText("GAIN (+)", hx, contentY + 5, 8, Theme.NeonGreen); hx += col2W;
+                Theme.DrawText("LOSS (-)", hx, contentY + 5, 8, Theme.NeonRed); hx += col3W;
+                Theme.DrawText("MAX-SPD", hx, contentY + 5, 8, Theme.NeonGold); hx += col4W;
+                Theme.DrawText("AIRTIME", hx, contentY + 5, 8, Theme.TextMuted); hx += col5W;
+                Theme.DrawText("OVERLAP", hx, contentY + 5, 8, Theme.TextMuted); hx += col6W;
+                Theme.DrawText("BAD-ANG", hx, contentY + 5, 8, Theme.TextMuted); hx += col7W;
+                Theme.DrawText("WIDTH°", hx, contentY + 5, 8, Theme.TextMuted);
+
+                // Table Rows
+                int rowH = (int)(18 * scale);
+                int rY = contentY + thH + 2;
+
+                for (int s = 0; s < _selectedLogBreakdown.Count && rY + rowH <= contentY + tableH; s++)
+                {
+                    var st = _selectedLogBreakdown[s];
+                    if (s % 2 == 1)
+                    {
+                        Raylib.DrawRectangle(contentX, rY, contentW, rowH, new Color(255, 255, 255, 5));
+                    }
+
+                    int rx = contentX + 8;
+                    Theme.DrawText($"S{st.StrafeIndex + 1}", rx, rY + 3, 8, Theme.NeonCyan); rx += col0W;
+                    
+                    Color syncCol = st.Sync >= 80 ? Theme.NeonGreen : (st.Sync >= 65 ? Theme.TextWhite : Theme.NeonOrange);
+                    Theme.DrawText($"{st.Sync:F1}%", rx, rY + 3, 8, syncCol); rx += col1W;
+
+                    Theme.DrawText($"+{st.Gain:F1}", rx, rY + 3, 8, Theme.NeonGreen); rx += col2W;
+                    
+                    Color lossCol = st.Loss > 5f ? Theme.NeonRed : Theme.TextDim;
+                    Theme.DrawText($"-{st.Loss:F1}", rx, rY + 3, 8, lossCol); rx += col3W;
+
+                    Theme.DrawText($"{st.MaxSpeed:F0}", rx, rY + 3, 8, Theme.NeonGold); rx += col4W;
+                    Theme.DrawText($"{st.AirtimePct:F0}%", rx, rY + 3, 8, Theme.TextWhite); rx += col5W;
+
+                    Color overCol = st.Overlap > 18f ? Theme.NeonRed : Theme.TextDim;
+                    Theme.DrawText($"{st.Overlap:F1}ms", rx, rY + 3, 8, overCol); rx += col6W;
+
+                    Color badCol = st.BadAngles > 10f ? Theme.NeonOrange : Theme.TextDim;
+                    Theme.DrawText($"{st.BadAngles:F1}%", rx, rY + 3, 8, badCol); rx += col7W;
+
+                    Theme.DrawText($"{st.WidthDeg:F1}°", rx, rY + 3, 8, Theme.TextWhite);
+
+                    rY += rowH;
+                }
+
+                contentY += tableH + 10;
+            }
+
+            // RAW CONSOLE OUTPUT / DETAILS
+            Theme.DrawText("ОРИГИНАЛЬНЫЙ КОНСОЛЬНЫЙ ВЫВОД (RAW CS2 CONSOLE):", contentX, contentY, 9, Theme.TextMuted);
+            contentY += (int)(16 * scale);
+
+            int rawH = popY + popH - contentY - 14;
+            Raylib.DrawRectangle(contentX, contentY, contentW, rawH, new Color(7, 10, 16, 255));
+            Raylib.DrawRectangleLines(contentX, contentY, contentW, rawH, Theme.Border);
+
+            string[] lines = _selectedLogContent.Split('\n');
+            int textY = contentY + 6;
+            int maxLines = rawH / (int)(15 * scale);
+            for (int l = 0; l < lines.Length && l < maxLines; l++)
+            {
+                Theme.DrawText(lines[l], contentX + 10, textY, 8, Theme.TextWhite);
+                textY += (int)(15 * scale);
+            }
+        }
+
         private static void DrawHistoryStatPill(int px, int py, int pw, int ph, string title, string val, string sub, Color accent)
         {
             // Sleek card container with left accent
@@ -795,16 +1044,50 @@ namespace LJTrainer.UI
             int pHeaderH = (int)(38 * scale);
             Raylib.DrawRectangle(col1X, y, col1W, pHeaderH, Theme.BgPanelHeader);
             Raylib.DrawLine(col1X, y + pHeaderH, col1X + col1W, y + pHeaderH, Theme.Border);
-            Theme.DrawText("РЕКОРДЫ ПРЫЖКОВ (7 ТИПОВ)", col1X + 14, y + (pHeaderH - Theme.GetScaledFontSize(11)) / 2, 11, Theme.NeonCyan);
 
-            int pbHistBtnW = (int)(155 * scale);
+            // Responsive Header Title & Action Buttons
+            int curHRight = col1X + col1W - 10;
             int pbHistBtnH = (int)(24 * scale);
-            int pbHistBtnX = col1X + col1W - pbHistBtnW - 10;
             int pbHistBtnY = y + (pHeaderH - pbHistBtnH) / 2;
-            if (Theme.DrawButton(pbHistBtnX, pbHistBtnY, pbHistBtnW, pbHistBtnH, "ИСТОРИЯ РЕКОРДОВ", false, 9, enabled: inputActive))
+
+            // Compute available action bar space and dynamic button widths
+            int availBtnAreaW = Math.Max(260, col1W - (col1W > 580 ? 210 : 20));
+            int bHistW = Math.Clamp((int)(availBtnAreaW * 0.40f), 105, (int)(140 * scale));
+            int bBlockW = Math.Clamp((int)(availBtnAreaW * 0.30f), 78, (int)(100 * scale));
+            int bDistW = Math.Clamp((int)(availBtnAreaW * 0.30f), 74, (int)(95 * scale));
+
+            // [ИСТОРИЯ РЕКОРДОВ]
+            curHRight -= bHistW;
+            string histLbl = bHistW < 120 ? "ИСТОРИЯ" : "ИСТОРИЯ РЕКОРДОВ";
+            if (Theme.DrawButton(curHRight, pbHistBtnY, bHistW, pbHistBtnH, histLbl, false, 8, enabled: inputActive))
             {
                 _selectedPbHistoryJumpType = "All";
                 _showPBHistoryModal = true;
+            }
+            curHRight -= 6;
+
+            // [РЕЖИМ: ТОЛЬКО БЛОКИ]
+            curHRight -= bBlockW;
+            string blkModeLbl = bBlockW < 85 ? "БЛОКИ" : "БЛОКИ (PB)";
+            if (Theme.DrawButton(curHRight, pbHistBtnY, bBlockW, pbHistBtnH, blkModeLbl, _pbViewMode == 1, 8, enabled: inputActive))
+            {
+                _pbViewMode = 1;
+            }
+            curHRight -= 4;
+
+            // [РЕЖИМ: ДИСТАНЦИЯ (ВСЕ)]
+            curHRight -= bDistW;
+            string distModeLbl = bDistW < 80 ? "ДИСТ." : "ДИСТАНЦИЯ";
+            if (Theme.DrawButton(curHRight, pbHistBtnY, bDistW, pbHistBtnH, distModeLbl, _pbViewMode == 0, 8, enabled: inputActive))
+            {
+                _pbViewMode = 0;
+            }
+
+            // Left Title (shows only when space is ample)
+            if (curHRight - col1X > 140)
+            {
+                string headerTitle = (curHRight - col1X > 200) ? "РЕКОРДЫ ПРЫЖКОВ (7 ТИПОВ)" : "РЕКОРДЫ";
+                Theme.DrawText(headerTitle, col1X + 14, y + (pHeaderH - Theme.GetScaledFontSize(10)) / 2, 10, Theme.NeonCyan);
             }
 
             int pbAreaY = y + pHeaderH + 8;
@@ -813,8 +1096,8 @@ namespace LJTrainer.UI
 
             int cardCols = 2;
             int cardGap = 8;
-            int cardW = (col1W - 32 - cardGap) / cardCols;
-            int cardH = (int)(106 * scale);
+            int standardCardW = (col1W - 32 - cardGap) / cardCols;
+            int cardH = (int)(118 * scale);
             int totalPbRows = (jumpTypes.Length + 1) / cardCols;
             int totalPbH = totalPbRows * (cardH + cardGap) + 10;
 
@@ -834,19 +1117,14 @@ namespace LJTrainer.UI
 
                 int row = i / cardCols;
                 int col = i % cardCols;
-                int cx = col1X + 16 + col * (cardW + cardGap);
+                int cardW = (i == jumpTypes.Length - 1 && jumpTypes.Length % 2 == 1) ? (col1W - 32) : standardCardW;
+                int cx = col1X + 16 + (cardW == col1W - 32 ? 0 : col * (standardCardW + cardGap));
                 int cy = pbAreaY + 4 + row * (cardH + cardGap) - (int)_pbScrollY;
-
-                if (i == 6)
-                {
-                    cardW = col1W - 32;
-                    cx = col1X + 16;
-                }
 
                 if (cy + cardH < pbAreaY - 20 || cy > pbAreaY + pbAreaH + 20) continue;
 
                 bool isHover = inputActive && mouse.X >= cx && mouse.X <= cx + cardW && mouse.Y >= cy && mouse.Y <= cy + cardH;
-                if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                if (isHover && Raylib.IsMouseButtonPressed(MouseButton.Left) && mouse.Y < cy + (int)(32 * scale))
                 {
                     _selectedPbHistoryJumpType = jType;
                     _showPBHistoryModal = true;
@@ -857,7 +1135,7 @@ namespace LJTrainer.UI
                 Raylib.DrawRectangleLines(cx, cy, cardW, cardH, isHover ? accentColor : new Color(accentColor.R, accentColor.G, accentColor.B, (byte)70));
                 Raylib.DrawRectangle(cx, cy, 4, cardH, accentColor);
 
-                // Row 1: Left: [CODE] TYPE NAME. Right: Date (dd.MM HH:mm)
+                // Row 1: Left: [CODE] TYPE NAME. Right: Direction Selector Pills [ПРЯМО | БОКОМ | СПИНОЙ]
                 int badgeW = (int)(36 * scale);
                 int badgeH = (int)(18 * scale);
                 Raylib.DrawRectangle(cx + 10, cy + 8, badgeW, badgeH, new Color(accentColor.R, accentColor.G, accentColor.B, (byte)35));
@@ -866,56 +1144,154 @@ namespace LJTrainer.UI
 
                 Theme.DrawText(typeName.ToUpper(), cx + 10 + badgeW + 8, cy + 10, 10, Theme.TextWhite);
 
-                string dateStr = pb.PBDate != DateTime.MinValue ? pb.PBDate.ToString("dd.MM HH:mm") : "";
-                if (!string.IsNullOrEmpty(dateStr))
+                // Direction Switcher Pills inside each card (FWD / SW / BW)
+                int dirPillW = (int)(34 * scale);
+                int dirPillH = (int)(17 * scale);
+                int dirPillY = cy + 8;
+                int dirPillX = cx + cardW - (dirPillW * 3 + 6) - 10;
+
+                string[] dirLabels = { "FWD", "SW", "BW" };
+                for (int d = 0; d < 3; d++)
                 {
-                    int dW = (int)(dateStr.Length * 5.6f * scale);
-                    Theme.DrawText(dateStr, cx + cardW - dW - 10, cy + 11, 8, Theme.TextDim);
+                    int px = dirPillX + d * (dirPillW + 3);
+                    bool isCurDir = (_pbDirFilter == d);
+                    if (Theme.DrawButton(px, dirPillY, dirPillW, dirPillH, dirLabels[d], isCurDir, 7, enabled: inputActive))
+                    {
+                        _pbDirFilter = d;
+                    }
                 }
 
-                if (pb.PBDist > 0)
+                // Resolve values for the currently selected Direction (0 = FWD, 1 = SW, 2 = BW)
+                float activeDist = _pbDirFilter switch
                 {
-                    // Row 2: Distance + units + compact delta badge "▲ +X.XXu"
-                    string distStr = $"{pb.PBDist:F2}";
-                    Theme.DrawText(distStr, cx + 12, cy + (int)(32 * scale), 18, Theme.NeonCyan);
+                    1 => pb.SwPBDist,
+                    2 => pb.BwPBDist,
+                    _ => pb.PBDist
+                };
 
-                    int distTextW = (int)(distStr.Length * 10.2f * scale);
-                    int unitsX = cx + 12 + distTextW + 4;
-                    Theme.DrawText("units", unitsX, cy + (int)(38 * scale), 8, Theme.TextDim);
+                float activeBlock = _pbDirFilter switch
+                {
+                    1 => pb.SwBlockPB > 0 ? pb.SwBlockPB : pb.SwPBBlockDist,
+                    2 => pb.BwBlockPB > 0 ? pb.BwBlockPB : pb.BwPBBlockDist,
+                    _ => pb.BlockPB > 0 ? pb.BlockPB : pb.PBBlockDist
+                };
 
-                    // Compact Delta Badge: strictly "▲ +X.XXu" (NO "было ...")
-                    if (pb.PBDelta > 0)
+                int activeStrafes = _pbDirFilter switch
+                {
+                    1 => pb.SwPBStrafes,
+                    2 => pb.BwPBStrafes,
+                    _ => pb.PBStrafes
+                };
+
+                float activeSync = _pbDirFilter switch
+                {
+                    1 => pb.SwPBSync,
+                    2 => pb.BwPBSync,
+                    _ => pb.PBSync
+                };
+
+                float activePre = _pbDirFilter switch
+                {
+                    1 => pb.SwPBPreSpeed,
+                    2 => pb.BwPBPreSpeed,
+                    _ => pb.PBPreSpeed
+                };
+
+                DateTime activeDate = _pbDirFilter switch
+                {
+                    1 => pb.SwPBDate,
+                    2 => pb.BwPBDate,
+                    _ => pb.PBDate
+                };
+
+                bool hasRecord = _pbViewMode == 1 ? (activeBlock > 0) : (activeDist > 0);
+
+                if (hasRecord)
+                {
+                    if (_pbViewMode == 1) // БЛОКИ (BLOCK PBS MODE)
                     {
-                        string deltaStr = $"▲ +{pb.PBDelta:F2}u";
-                        int delBadgeW = (int)(62 * scale);
-                        int delBadgeH = (int)(17 * scale);
-                        int delBadgeX = unitsX + (int)(32 * scale);
-                        if (delBadgeX + delBadgeW > cx + cardW - 8) delBadgeX = cx + cardW - delBadgeW - 8;
+                        // Row 2: Block Distance as Main Headline
+                        string blkMainStr = $"БЛОК {activeBlock:F0}";
+                        var (bTierName, _, bTierCol, _) = GetBlockTier(jType, activeBlock);
+                        Theme.DrawText(blkMainStr, cx + 12, cy + (int)(34 * scale), 18, bTierCol);
 
-                        Raylib.DrawRectangle(delBadgeX, cy + (int)(33 * scale), delBadgeW, delBadgeH, new Color(0, 255, 128, 35));
-                        Raylib.DrawRectangleLines(delBadgeX, cy + (int)(33 * scale), delBadgeW, delBadgeH, Theme.NeonGreen);
-                        Theme.DrawText(deltaStr, delBadgeX + 5, cy + (int)(36 * scale), 8, Theme.NeonGreen);
+                        int blkTextW = Theme.MeasureText(blkMainStr, 18);
+                        int curBadgeAnchorX = cx + 12 + blkTextW + 10;
+
+                        // Tier Badge
+                        if (bTierName != "NORMAL")
+                        {
+                            int tBadgeW = Theme.MeasureText(bTierName, 8) + 10;
+                            int tBadgeH = (int)(17 * scale);
+                            Raylib.DrawRectangle(curBadgeAnchorX, cy + (int)(35 * scale), tBadgeW, tBadgeH, new Color(bTierCol.R, bTierCol.G, bTierCol.B, (byte)35));
+                            Raylib.DrawRectangleLines(curBadgeAnchorX, cy + (int)(35 * scale), tBadgeW, tBadgeH, bTierCol);
+                            Theme.DrawText(bTierName, curBadgeAnchorX + 5, cy + (int)(38 * scale), 8, bTierCol);
+                            curBadgeAnchorX += tBadgeW + 6;
+                        }
+
+                        // Row 3: Strafe metrics & Actual Jump Distance
+                        string row1 = $"{activeDist:F2}u  •  {activeStrafes} str  •  {activeSync:F0}% sync";
+                        Theme.DrawText(row1, cx + 12, cy + (int)(62 * scale), 9, Theme.TextDim);
+                    }
+                    else // ДИСТАНЦИЯ (DISTANCE PBS MODE)
+                    {
+                        // Row 2: Distance + units + Tier Badge + Block PB Badge
+                        string distStr = $"{activeDist:F2}";
+                        var (dTierName, _, dTierCol, _) = GetKzTier(jType, activeDist);
+                        Theme.DrawText(distStr, cx + 12, cy + (int)(34 * scale), 18, dTierCol);
+
+                        int distTextW = (int)(distStr.Length * 10.2f * scale);
+                        int unitsX = cx + 12 + distTextW + 4;
+                        Theme.DrawText("units", unitsX, cy + (int)(40 * scale), 8, Theme.TextDim);
+
+                        int curBadgeAnchorX = unitsX + (int)(32 * scale);
+
+                        // Dedicated Tier Badge (e.g. GODLIKE / OWNAGE / PERFECT / IMPRESSIVE)
+                        if (dTierName != "NORMAL")
+                        {
+                            int tBadgeW = Theme.MeasureText(dTierName, 8) + 10;
+                            int tBadgeH = (int)(17 * scale);
+                            Raylib.DrawRectangle(curBadgeAnchorX, cy + (int)(35 * scale), tBadgeW, tBadgeH, new Color(dTierCol.R, dTierCol.G, dTierCol.B, (byte)35));
+                            Raylib.DrawRectangleLines(curBadgeAnchorX, cy + (int)(35 * scale), tBadgeW, tBadgeH, dTierCol);
+                            Theme.DrawText(dTierName, curBadgeAnchorX + 5, cy + (int)(38 * scale), 8, dTierCol);
+                            curBadgeAnchorX += tBadgeW + 6;
+                        }
+
+                        // Block PB Badge with Tier Color (e.g. [БЛОК 270: OWNAGE])
+                        if (activeBlock > 0)
+                        {
+                            var (bTierName, _, bTierCol, _) = GetBlockTier(jType, activeBlock);
+                            string blkText = $"Блок {activeBlock:F0} [{bTierName}]";
+                            int blkW = Theme.MeasureText(blkText, 8) + 10;
+                            int blkH = (int)(17 * scale);
+                            if (curBadgeAnchorX + blkW <= cx + cardW - 8)
+                            {
+                                Raylib.DrawRectangle(curBadgeAnchorX, cy + (int)(35 * scale), blkW, blkH, new Color(bTierCol.R, bTierCol.G, bTierCol.B, (byte)35));
+                                Raylib.DrawRectangleLines(curBadgeAnchorX, cy + (int)(35 * scale), blkW, blkH, bTierCol);
+                                Theme.DrawText(blkText, curBadgeAnchorX + 5, cy + (int)(38 * scale), 8, bTierCol);
+                                curBadgeAnchorX += blkW + 6;
+                            }
+                        }
+
+                        // Row 3: Strafe metrics & Block PB breakdown if present
+                        string row1 = $"{activeStrafes} str  •  {activeSync:F0}% sync  •  {activePre:F0} pre";
+                        if (activeBlock > 0)
+                        {
+                            row1 += $"  •  PB Блок: {activeBlock:F0}";
+                        }
+                        Theme.DrawText(row1, cx + 12, cy + (int)(62 * scale), 9, Theme.TextDim);
                     }
 
-                    // Row 3: Strafe metrics
-                    string row1 = $"{pb.PBStrafes} str  •  {pb.PBSync:F0}% sync  •  {pb.PBPreSpeed:F0} pre";
-                    Theme.DrawText(row1, cx + 12, cy + (int)(58 * scale), 9, Theme.TextDim);
-
-                    // Row 4: Averages & count
-                    if (pb.QualityJumps > 0)
-                    {
-                        string row2 = $"Ср: {pb.AvgDist:F1}u ({pb.AvgSync:F0}% sync, {pb.QualityJumps} прыж.)";
-                        Theme.DrawText(row2, cx + 12, cy + (int)(76 * scale), 8, Theme.TextMuted);
-                    }
-                    else
-                    {
-                        Theme.DrawText("Качественных прыжков: 0", cx + 12, cy + (int)(76 * scale), 8, Theme.TextMuted);
-                    }
+                    // Row 4: Date & averages
+                    string dateStr = activeDate != DateTime.MinValue ? activeDate.ToString("dd.MM.yyyy HH:mm") : "";
+                    string row2 = !string.IsNullOrEmpty(dateStr) ? $"Дата рекорда: {dateStr}" : $"Ср: {pb.AvgDist:F1}u ({pb.AvgSync:F0}% sync)";
+                    Theme.DrawText(row2, cx + 12, cy + (int)(84 * scale), 8, Theme.TextMuted);
                 }
                 else
                 {
-                    Theme.DrawText("НЕТ ЗАПИСЕЙ", cx + 12, cy + (int)(40 * scale), 13, Theme.TextMuted);
-                    Theme.DrawText("Ожидание первого прыжка в CS2...", cx + 12, cy + (int)(66 * scale), 8, Theme.TextDim);
+                    string dirName = _pbDirFilter == 1 ? "БОКОМ (SW)" : (_pbDirFilter == 2 ? "СПИНОЙ (BW)" : "ПРЯМО (FWD)");
+                    Theme.DrawText($"НЕТ ЗАПИСИ {dirName}", cx + 12, cy + (int)(42 * scale), 12, Theme.TextMuted);
+                    Theme.DrawText($"Совершите прыжок {dirName} на сервере CS2...", cx + 12, cy + (int)(70 * scale), 8, Theme.TextDim);
                 }
             }
             Raylib.EndScissorMode();
@@ -956,15 +1332,20 @@ namespace LJTrainer.UI
             int tileW = (col2W - 32 - tileGap) / 2;
             int tileH = (int)(68 * scale);
 
-            float avgSync = cs.OverallAvgSync > 0 ? cs.OverallAvgSync : (prof.LifetimeAvgSync > 0 ? prof.LifetimeAvgSync : 75f);
-            float avgPre = cs.OverallAvgPreSpeed > 0 ? cs.OverallAvgPreSpeed : 274.6f;
-            float avgOvr = cs.OverallAvgOverlap > 0 ? cs.OverallAvgOverlap : 19.4f;
-            float avgBad = cs.OverallAvgBadAngles > 0 ? cs.OverallAvgBadAngles : 8.5f;
+            float avgSync = cs.OverallAvgSync > 0 ? cs.OverallAvgSync : (prof.TotalStrafes > 0 ? prof.LifetimeAvgSync : 0f);
+            float avgPre = cs.OverallAvgPreSpeed > 0 ? cs.OverallAvgPreSpeed : 0f;
+            float avgOvr = cs.OverallAvgOverlap > 0 ? cs.OverallAvgOverlap : 0f;
+            float avgBad = cs.OverallAvgBadAngles > 0 ? cs.OverallAvgBadAngles : 0f;
 
-            DrawQualityTile(col2X + 16, ry, tileW, tileH, "СРЕДНЯЯ СИНХРА", $"{avgSync:F1}%", "Качественные прыжки", Theme.NeonGreen);
-            DrawQualityTile(col2X + 16 + tileW + tileGap, ry, tileW, tileH, "СРЕДНИЙ PRE-SPEED", $"{avgPre:F1} u/s", "Скорость на отрыве", Theme.NeonCyan);
-            DrawQualityTile(col2X + 16, ry + tileH + tileGap, tileW, tileH, "OVERLAP (ЗАЖАТИЕ A+D)", $"{avgOvr:F1} ms", "Низкий = лучше", avgOvr < 25 ? Theme.NeonGreen : Theme.NeonOrange);
-            DrawQualityTile(col2X + 16 + tileW + tileGap, ry + tileH + tileGap, tileW, tileH, "ОШИБКИ УГЛОВ (BAD ANGLES)", $"{avgBad:F1}%", "Потери стрейфов", avgBad < 10 ? Theme.NeonGreen : Theme.NeonOrange);
+            string syncStr = avgSync > 0 ? $"{avgSync:F1}%" : "-";
+            string preStr = avgPre > 0 ? $"{avgPre:F1} u/s" : "-";
+            string ovrStr = avgOvr > 0 ? $"{avgOvr:F1} ms" : "-";
+            string badStr = avgBad > 0 ? $"{avgBad:F1}%" : "-";
+
+            DrawQualityTile(col2X + 16, ry, tileW, tileH, "СРЕДНЯЯ СИНХРА", syncStr, "Качественные прыжки", avgSync > 0 ? Theme.NeonGreen : Theme.TextDim);
+            DrawQualityTile(col2X + 16 + tileW + tileGap, ry, tileW, tileH, "СРЕДНИЙ PRE-SPEED", preStr, "Скорость на отрыве", avgPre > 0 ? Theme.NeonCyan : Theme.TextDim);
+            DrawQualityTile(col2X + 16, ry + tileH + tileGap, tileW, tileH, "OVERLAP (ЗАЖАТИЕ A+D)", ovrStr, "Низкий = лучше", avgOvr > 0 ? (avgOvr < 25 ? Theme.NeonGreen : Theme.NeonOrange) : Theme.TextDim);
+            DrawQualityTile(col2X + 16 + tileW + tileGap, ry + tileH + tileGap, tileW, tileH, "ОШИБКИ УГЛОВ (BAD ANGLES)", badStr, "Потери стрейфов", avgBad > 0 ? (avgBad < 10 ? Theme.NeonGreen : Theme.NeonOrange) : Theme.TextDim);
 
             ry += (tileH * 2 + tileGap * 2 + 10);
 
@@ -998,11 +1379,22 @@ namespace LJTrainer.UI
                     if (isEven) Raylib.DrawRectangle(col2X + 18, jRowY, col2W - 36, rowH - 2, new Color(255, 255, 255, 4));
 
                     var (tName, sCode, accCol) = CybershokeKzProfile.GetJumpTypeMeta(jmp.JumpType);
+                    var (distTierName, _, distTierCol, _) = GetKzTier(jmp.JumpType, jmp.Distance);
 
                     Theme.DrawText(sCode, col2X + 24, jRowY + 4, 10, accCol);
-                    Theme.DrawText($"{jmp.Distance:F2}u", col2X + (int)(75 * scale), jRowY + 4, 11, Theme.NeonCyan);
+                    Theme.DrawText($"{jmp.Distance:F2}u", col2X + (int)(75 * scale), jRowY + 4, 11, distTierCol);
+
+                    int detailX = col2X + (int)(160 * scale);
+                    if (jmp.BlockDistance > 0)
+                    {
+                        var (bTierName, _, bTierCol, _) = GetBlockTier(jmp.JumpType, jmp.BlockDistance);
+                        string blkTag = $"[Блок {jmp.BlockDistance:F0}: {bTierName}] ";
+                        Theme.DrawText(blkTag, detailX, jRowY + 5, 9, bTierCol);
+                        detailX += Theme.MeasureText(blkTag, 9) + 4;
+                    }
+
                     string detailStr = $"{jmp.Strafes} str  •  {jmp.Sync:F0}% sync  •  {jmp.PreSpeed:F0} pre";
-                    Theme.DrawText(detailStr, col2X + (int)(160 * scale), jRowY + 5, 9, Theme.TextDim);
+                    Theme.DrawText(detailStr, detailX, jRowY + 5, 9, Theme.TextDim);
 
                     if (jmp.IsPB)
                     {
@@ -1277,8 +1669,10 @@ namespace LJTrainer.UI
             var cs = prof.Cybershoke;
             Vector2 mouse = inputActive ? Raylib.GetMousePosition() : new Vector2(-99999, -99999);
 
-            int colGap = 16;
-            int col1W = (int)(w * 0.42f);
+            int colGap = 14;
+            // Adaptive 50/50 or 46/54 split based on available width
+            float splitRatio = w > 1200 ? 0.48f : 0.45f;
+            int col1W = (int)(w * splitRatio);
             int col2W = w - col1W - colGap;
             int col1X = x;
             int col2X = col1X + col1W + colGap;
@@ -1288,30 +1682,39 @@ namespace LJTrainer.UI
             // =========================================================================
             Theme.DrawGlassPanel(col1X, y, col1W, h);
 
-            int pHeaderH = (int)(44 * scale);
+            int pHeaderH = (int)(38 * scale);
             Raylib.DrawRectangle(col1X, y, col1W, pHeaderH, Theme.BgPanelHeader);
             Raylib.DrawLine(col1X, y + pHeaderH, col1X + col1W, y + pHeaderH, Theme.Border);
-            Theme.DrawText("ГРАФИК ПРОГРЕССА (КЛИКАЙТЕ ДЛЯ ВЫБОРА)", col1X + 16, y + (pHeaderH - Theme.GetScaledFontSize(11)) / 2, 11, Theme.NeonCyan);
+            
+            // Left Title (clipped/adapted if space is tight)
+            string graphTitle = col1W > 450 ? "ГРАФИК ПРОГРЕССА" : "ПРОГРЕСС";
+            Theme.DrawText(graphTitle, col1X + 14, y + (pHeaderH - Theme.GetScaledFontSize(11)) / 2, 11, Theme.NeonCyan);
 
-            int gBtnW = (int)(55 * scale);
+            // Adaptive Metric Buttons on the Right Header
+            string[] mNames = { "Дистанц.", "Синхра", "PreSpd", "Overlap" };
             int gBtnH = (int)(22 * scale);
-            int gBtnX = col1X + col1W - (gBtnW * 4 + 14) - 8;
+            int gBtnW = Math.Clamp((col1W - Theme.MeasureText(graphTitle, 11) - 40) / 4, 45, (int)(68 * scale));
+            int gTotalW = gBtnW * 4 + 9;
+            int gBtnX = col1X + col1W - gTotalW - 10;
             int gBtnY = y + (pHeaderH - gBtnH) / 2;
 
-            if (Theme.DrawButton(gBtnX, gBtnY, gBtnW, gBtnH, "Дистанц.", _graphMetric == 0, 8, enabled: inputActive)) _graphMetric = 0;
-            gBtnX += gBtnW + 3;
-            if (Theme.DrawButton(gBtnX, gBtnY, gBtnW, gBtnH, "Синхра", _graphMetric == 1, 8, enabled: inputActive)) _graphMetric = 1;
-            gBtnX += gBtnW + 3;
-            if (Theme.DrawButton(gBtnX, gBtnY, gBtnW, gBtnH, "PreSpeed", _graphMetric == 2, 8, enabled: inputActive)) _graphMetric = 2;
-            gBtnX += gBtnW + 3;
-            if (Theme.DrawButton(gBtnX, gBtnY, gBtnW, gBtnH, "Overlap", _graphMetric == 3, 8, enabled: inputActive)) _graphMetric = 3;
+            for (int m = 0; m < 4; m++)
+            {
+                if (Theme.DrawButton(gBtnX, gBtnY, gBtnW, gBtnH, mNames[m], _graphMetric == m, 8, enabled: inputActive))
+                {
+                    _graphMetric = m;
+                }
+                gBtnX += gBtnW + 3;
+            }
 
-            int jToolY = y + pHeaderH + 8;
-            int jToolH = (int)(28 * scale);
-            int jbX = col1X + 16;
-            int jbW = (int)(65 * scale);
+            // Jump Type Selector Pills (Equal Width fitting col1W - 28)
+            int jToolY = y + pHeaderH + 6;
+            int jToolH = (int)(26 * scale);
+            int availPillsW = col1W - 28;
+            string[] quickTypes = { "Long Jump", "Bunnyhop", "Multi Bunnyhop", "Weird Jump", "Ladder Jump", "Sideways Jump", "Backwards Jump" };
+            int jbW = Math.Max(38, (availPillsW - (quickTypes.Length - 1) * 3) / quickTypes.Length);
+            int jbX = col1X + 14;
 
-            string[] quickTypes = { "Long Jump", "Bunnyhop", "Multi Bunnyhop", "Weird Jump", "Ladder Jump" };
             foreach (var jt in quickTypes)
             {
                 var (_, code, _) = CybershokeKzProfile.GetJumpTypeMeta(jt);
@@ -1319,16 +1722,38 @@ namespace LJTrainer.UI
                 {
                     _selectedGraphJumpType = jt;
                 }
-                jbX += jbW + 4;
+                jbX += jbW + 3;
             }
 
-            int graphY = jToolY + jToolH + 8;
-            int graphH = (int)(230 * scale);
-            int graphW = col1W - 32;
-            DrawTimelineGraph(col1X + 16, graphY, graphW, graphH, _graphMetric, _selectedGraphJumpType, cs, prof, scale, mouse);
+            // Sample Size Selector Bar (Выборка: 10, 20, 50, 100 прыжков)
+            int sampleToolY = jToolY + jToolH + 5;
+            int sampleToolH = (int)(20 * scale);
+            Theme.DrawText("ВЫБОРКА:", col1X + 14, sampleToolY + (sampleToolH - Theme.GetScaledFontSize(8)) / 2, 8, Theme.TextMuted);
 
-            int py = graphY + graphH + 12;
-            DrawAdComparisonCard(col1X + 16, ref py, col1W - 32, scale, prof);
+            int[] sampleSizes = { 10, 20, 50, 100 };
+            int smBtnW = (int)(42 * scale);
+            int smBtnX = col1X + 14 + Theme.MeasureText("ВЫБОРКА:", 8) + 10;
+            for (int sIdx = 0; sIdx < sampleSizes.Length; sIdx++)
+            {
+                int szVal = sampleSizes[sIdx];
+                string szLabel = $"{szVal}";
+                if (Theme.DrawButton(smBtnX, sampleToolY, smBtnW, sampleToolH, szLabel, _graphSampleSize == szVal, 8, enabled: inputActive))
+                {
+                    _graphSampleSize = szVal;
+                }
+                smBtnX += smBtnW + 4;
+            }
+
+            // Calculate adaptive heights so balance card and graph always fit without spilling
+            int cardH = (int)(85 * scale);
+            int graphY = sampleToolY + sampleToolH + 6;
+            int py = y + h - cardH - 10;
+            int graphH = Math.Max((int)(150 * scale), py - graphY - 8);
+            int graphW = col1W - 28;
+
+            DrawTimelineGraph(col1X + 14, graphY, graphW, graphH, _graphMetric, _selectedGraphJumpType, cs, prof, scale, mouse);
+
+            DrawAdComparisonCard(col1X + 14, ref py, col1W - 28, scale, prof);
 
             // =========================================================================
             // RIGHT COLUMN: FULL-HEIGHT 2D TOP-DOWN TRAJECTORY VISUALIZER & ERROR MAP
@@ -1343,25 +1768,24 @@ namespace LJTrainer.UI
             Raylib.DrawRectangle(cx, cy, cw, cardH, new Color(13, 18, 27, 230));
             Raylib.DrawRectangleLines(cx, cy, cw, cardH, Theme.Border);
 
-            Theme.DrawText("БАЛАНС РУК: ЛЕВЫЕ СТРЕЙФЫ (A) vs ПРАВЫЕ (D)", cx + 12, cy + 8, 9, Theme.NeonGold);
+            Theme.DrawText("БАЛАНС РУК: ЛЕВЫЕ СТРЕЙФЫ (A) vs ПРАВЫЕ (D)", cx + 12, cy + (int)(6 * scale), 10, Theme.NeonGold);
 
-            int halfW = (cw - 32) / 2;
+            int halfW = (cw - 24) / 2;
             int ly = cy + (int)(26 * scale);
+            int boxH = cardH - (int)(32 * scale);
 
-            Raylib.DrawRectangle(cx + 12, ly, halfW, (int)(56 * scale), new Color(0, 240, 255, 15));
-            Raylib.DrawRectangleLines(cx + 12, ly, halfW, (int)(56 * scale), new Color(0, 240, 255, 60));
-            Theme.DrawText("ЛЕВО (KEY_A):", cx + 18, ly + 6, 8, Theme.NeonCyan);
-            Theme.DrawText($"Синхра: {prof.LeftAvgSync:F0}%  •  Угол: {prof.LeftAvgAngle:F1}°", cx + 18, ly + 20, 9, Theme.TextWhite);
-            Theme.DrawText($"Зажатие A+D: {prof.LeftAvgOverlap:F1} мс", cx + 18, ly + 36, 8, Theme.TextDim);
+            Raylib.DrawRectangle(cx + 8, ly, halfW, boxH, new Color(0, 240, 255, 15));
+            Raylib.DrawRectangleLines(cx + 8, ly, halfW, boxH, new Color(0, 240, 255, 60));
+            Theme.DrawText("ЛЕВО (KEY_A):", cx + 14, ly + (int)(4 * scale), 10, Theme.NeonCyan);
+            Theme.DrawText($"Синхра: {prof.LeftAvgSync:F0}% • Угол: {prof.LeftAvgAngle:F1}°", cx + 14, ly + (int)(22 * scale), 10, Theme.TextWhite);
+            Theme.DrawText($"Зажатие A+D: {prof.LeftAvgOverlap:F1} мс", cx + 14, ly + (int)(40 * scale), 9, Theme.TextDim);
 
-            int rx = cx + 12 + halfW + 8;
-            Raylib.DrawRectangle(rx, ly, halfW, (int)(56 * scale), new Color(0, 255, 128, 15));
-            Raylib.DrawRectangleLines(rx, ly, halfW, (int)(56 * scale), new Color(0, 255, 128, 60));
-            Theme.DrawText("ПРАВО (KEY_D):", rx + 6, ly + 6, 8, Theme.NeonGreen);
-            Theme.DrawText($"Синхра: {prof.RightAvgSync:F0}%  •  Угол: {prof.RightAvgAngle:F1}°", rx + 6, ly + 20, 9, Theme.TextWhite);
-            Theme.DrawText($"Зажатие A+D: {prof.RightAvgOverlap:F1} мс", rx + 6, ly + 36, 8, Theme.TextDim);
-
-            cy += cardH + 10;
+            int rx = cx + 8 + halfW + 8;
+            Raylib.DrawRectangle(rx, ly, halfW, boxH, new Color(0, 255, 128, 15));
+            Raylib.DrawRectangleLines(rx, ly, halfW, boxH, new Color(0, 255, 128, 60));
+            Theme.DrawText("ПРАВО (KEY_D):", rx + 14, ly + (int)(4 * scale), 10, Theme.NeonGreen);
+            Theme.DrawText($"Синхра: {prof.RightAvgSync:F0}% • Угол: {prof.RightAvgAngle:F1}°", rx + 14, ly + (int)(22 * scale), 10, Theme.TextWhite);
+            Theme.DrawText($"Зажатие A+D: {prof.RightAvgOverlap:F1} мс", rx + 14, ly + (int)(40 * scale), 9, Theme.TextDim);
         }
 
         public static (string Name, string Badge, Color DotColor, Color GlowColor) GetKzTier(string jumpType, float dist)
@@ -1416,10 +1840,12 @@ namespace LJTrainer.UI
                     impressiveDist = 170.0f;
                     break;
 
+                case "Sideways Jump":
+                case "Backwards Jump":
                 case "Long Jump":
                 case "Jumpbug":
                 default:
-                    // Cybershoke CS2 KZ LJ / Jumpbug exact thresholds:
+                    // Cybershoke CS2 KZ LJ / Jumpbug / SW / BW exact thresholds:
                     // GODLIKE: 275.0 - 279.99 (Красный)
                     // OWNAGE: 280.0 - 283.99 (Желтый)
                     // WRECKER: 284.0+ (Фиолетовый)
@@ -1445,30 +1871,132 @@ namespace LJTrainer.UI
             return ("NORMAL", "NORMAL", Theme.TextDim, Color.Blank);
         }
 
-        private static List<CS2ConsoleEvent> GetJumpHistoryForAnalytics(string normFilter, CybershokeKzProfile cs)
+        public static (string Name, string Badge, Color DotColor, Color GlowColor) GetBlockTier(string jumpType, float blockDist)
         {
-            var filtered = cs.RecentJumps.Where(j => CybershokeKzProfile.NormalizeJumpType(j.JumpType) == normFilter).ToList();
-            if (filtered.Count > 0)
+            string norm = CybershokeKzProfile.NormalizeJumpType(jumpType);
+
+            float wreckerBlock, ownageBlock, godlikeBlock, perfectBlock, impressiveBlock;
+
+            switch (norm)
             {
-                return filtered.Take(25).Reverse().ToList();
+                case "Bunnyhop":
+                    // CS2 BHOP Block Tiers
+                    wreckerBlock = 286.0f;
+                    ownageBlock = 282.0f;
+                    godlikeBlock = 276.0f;
+                    perfectBlock = 270.0f;
+                    impressiveBlock = 264.0f;
+                    break;
+
+                case "Multi Bunnyhop":
+                    // CS2 MBHOP Block Tiers
+                    wreckerBlock = 292.0f;
+                    ownageBlock = 288.0f;
+                    godlikeBlock = 282.0f;
+                    perfectBlock = 275.0f;
+                    impressiveBlock = 268.0f;
+                    break;
+
+                case "Weird Jump":
+                    // CS2 WJ Block Tiers
+                    wreckerBlock = 278.0f;
+                    ownageBlock = 274.0f;
+                    godlikeBlock = 270.0f;
+                    perfectBlock = 265.0f;
+                    impressiveBlock = 258.0f;
+                    break;
+
+                case "Ladder Jump":
+                    // CS2 Ladder Jump Block Tiers
+                    wreckerBlock = 185.0f;
+                    ownageBlock = 180.0f;
+                    godlikeBlock = 170.0f;
+                    perfectBlock = 160.0f;
+                    impressiveBlock = 150.0f;
+                    break;
+
+                case "Ladderhop":
+                    wreckerBlock = 200.0f;
+                    ownageBlock = 190.0f;
+                    godlikeBlock = 180.0f;
+                    perfectBlock = 170.0f;
+                    impressiveBlock = 160.0f;
+                    break;
+
+                case "Sideways Jump":
+                case "Backwards Jump":
+                case "Long Jump":
+                case "Jumpbug":
+                default:
+                    // CS2 Block Tiers for LJ / SW / BW / JB:
+                    // WRECKER: 275+ (Purple)
+                    // OWNAGE: 270 - 274 (Gold)
+                    // GODLIKE: 265 - 269 (Red)
+                    // PERFECT: 260 - 264 (Green)
+                    // IMPRESSIVE: 255 - 259 (Cyan)
+                    wreckerBlock = 275.0f;
+                    ownageBlock = 270.0f;
+                    godlikeBlock = 265.0f;
+                    perfectBlock = 260.0f;
+                    impressiveBlock = 255.0f;
+                    break;
             }
 
-            var pb = cs.GetOrCreate(normFilter);
-            float baseDist = pb.PBDist > 0 ? pb.PBDist : (normFilter == "Ladder Jump" ? 176.4f : (normFilter == "Bunnyhop" ? 293.4f : 281.2f));
-            float baseSync = pb.PBSync > 0 ? pb.PBSync : 81.5f;
-            float basePre = pb.PBPreSpeed > 0 ? pb.PBPreSpeed : 276.4f;
+            if (blockDist >= wreckerBlock)
+                return ("WRECKER", "WRECKER", Theme.NeonPurple, new Color(213, 0, 249, 75));
+            if (blockDist >= ownageBlock)
+                return ("OWNAGE", "OWNAGE", Theme.NeonGold, new Color(255, 215, 0, 75));
+            if (blockDist >= godlikeBlock)
+                return ("GODLIKE", "GODLIKE", Theme.NeonRed, new Color(255, 23, 68, 75));
+            if (blockDist >= perfectBlock)
+                return ("PERFECT", "PERFECT", Theme.NeonGreen, new Color(0, 230, 118, 45));
+            if (blockDist >= impressiveBlock)
+                return ("IMPRESSIVE", "IMPRESSIVE", Theme.NeonCyan, new Color(0, 229, 255, 35));
 
-            return new List<CS2ConsoleEvent>
+            return ("NORMAL", "NORMAL", Theme.TextDim, Color.Blank);
+        }
+
+        private static List<CS2ConsoleEvent> GetJumpHistoryForAnalytics(string normFilter, CybershokeKzProfile cs, int sampleSize = 30)
+        {
+            // 1. Check persistent per-type jump history (keeps up to 200 jumps per type)
+            var typeJumps = cs.GetJumpsForType(normFilter);
+            if (typeJumps.Count > 0)
             {
-                new() { JumpType = normFilter, Distance = baseDist - 12.8f, Strafes = 6, Sync = baseSync - 16f, PreSpeed = basePre - 10f, MaxSpeed = 314f, AvgOverlap = 30f, AvgBadAngles = 22f, Deviation = 17.2f },
-                new() { JumpType = normFilter, Distance = baseDist - 9.1f, Strafes = 7, Sync = baseSync - 10f, PreSpeed = basePre - 6f, MaxSpeed = 324f, AvgOverlap = 25f, AvgBadAngles = 17f, Deviation = 12.5f },
-                new() { JumpType = normFilter, Distance = baseDist - 5.4f, Strafes = 8, Sync = baseSync - 6f, PreSpeed = basePre - 4f, MaxSpeed = 330f, AvgOverlap = 20f, AvgBadAngles = 13f, Deviation = 8.1f },
-                new() { JumpType = normFilter, Distance = baseDist - 6.8f, Strafes = 7, Sync = baseSync - 8f, PreSpeed = basePre - 5f, MaxSpeed = 328f, AvgOverlap = 22f, AvgBadAngles = 15f, Deviation = 9.4f },
-                new() { JumpType = normFilter, Distance = baseDist - 3.2f, Strafes = 8, Sync = baseSync - 4f, PreSpeed = basePre - 2f, MaxSpeed = 334f, AvgOverlap = 17f, AvgBadAngles = 10f, Deviation = 5.2f },
-                new() { JumpType = normFilter, Distance = baseDist - 1.2f, Strafes = 8, Sync = baseSync - 1f, PreSpeed = basePre - 1f, MaxSpeed = 338f, AvgOverlap = 14f, AvgBadAngles = 7f, Deviation = 3.6f },
-                new() { JumpType = normFilter, Distance = baseDist + 0.8f, Strafes = 9, Sync = baseSync + 1f, PreSpeed = basePre, MaxSpeed = 342f, AvgOverlap = 12f, AvgBadAngles = 5f, Deviation = 2.4f },
-                new() { JumpType = normFilter, Distance = baseDist + 3.6f, Strafes = 9, Sync = baseSync + 3f, PreSpeed = basePre + 1.5f, MaxSpeed = 347f, AvgOverlap = 9f, AvgBadAngles = 3f, Deviation = 1.2f }
-            };
+                return typeJumps.Take(sampleSize).Reverse().ToList();
+            }
+
+            // 2. Fallback to RecentJumps buffer
+            var filtered = cs.RecentJumps
+                .Where(j => CybershokeKzProfile.NormalizeJumpType(j.JumpType) == normFilter && j.Distance > 140f)
+                .ToList();
+
+            if (filtered.Count > 0)
+            {
+                return filtered.Take(sampleSize).Reverse().ToList();
+            }
+
+            // Fallback: if user has a PB recorded from Cybershoke/Console, seed with initial point
+            var pb = cs.GetOrCreate(normFilter);
+            if (pb.PBDist > 0)
+            {
+                return new List<CS2ConsoleEvent>
+                {
+                    new()
+                    {
+                        JumpType = normFilter,
+                        Distance = pb.PBDist,
+                        Strafes = pb.PBStrafes > 0 ? pb.PBStrafes : 8,
+                        Sync = pb.PBSync > 0 ? pb.PBSync : 80f,
+                        PreSpeed = pb.PBPreSpeed > 0 ? pb.PBPreSpeed : 275f,
+                        MaxSpeed = pb.PBMaxSpeed > 0 ? pb.PBMaxSpeed : 340f,
+                        AvgOverlap = pb.AvgOverlap,
+                        AvgBadAngles = pb.AvgBadAngles,
+                        IsPB = true
+                    }
+                };
+            }
+
+            return new List<CS2ConsoleEvent>();
         }
 
         private void DrawTimelineGraph(int gx, int gy, int gw, int gh, int metric, string filterType, CybershokeKzProfile cs, UserProfile prof, float scale, Vector2 mouse)
@@ -1477,7 +2005,7 @@ namespace LJTrainer.UI
             Raylib.DrawRectangleLines(gx, gy, gw, gh, Theme.Border);
 
             var normFilter = CybershokeKzProfile.NormalizeJumpType(filterType);
-            var jumps = GetJumpHistoryForAnalytics(normFilter, cs);
+            var jumps = GetJumpHistoryForAnalytics(normFilter, cs, _graphSampleSize);
 
             var points = new List<float>();
             var labels = new List<string>();
@@ -1715,80 +2243,133 @@ namespace LJTrainer.UI
 
             Theme.DrawText("2D ТРАЕКТОРИЯ ПОЛЁТА", tx + 12, ty + (headerH - Theme.GetScaledFontSize(10)) / 2, 10, Theme.NeonGold);
 
-            // Selector buttons (Average + Jump Pills)
+            // 1. Selector buttons (ПОСЛЕДНИЙ ПРЫЖОК, РЕКОРД (PB), СРЕДНИЙ ТРЕК, ЛОГ)
             int selBtnH = (int)(22 * scale);
-            int selX = tx + tw - 12;
-            int selY = ty + (headerH - selBtnH) / 2;
-
             int lastIdx = jumps.Count - 1;
 
-            // 1. СРЕДНЯЯ Button
-            int avgBtnW = (int)(75 * scale);
-            selX -= avgBtnW;
-            if (Theme.DrawButton(selX, selY, avgBtnW, selBtnH, "СРЕДНЯЯ", _selectedTrajectoryJumpIndex == -1, 8, enabled: inputActive))
+            // Find absolute personal best jump across ALL recorded jumps for this type
+            var allTypeJumps = cs.RecentJumps
+                .Where(j => CybershokeKzProfile.NormalizeJumpType(j.JumpType) == normFilter && j.Distance > 140f)
+                .ToList();
+
+            CS2ConsoleEvent? absolutePbJump = null;
+            float maxFoundDist = -1;
+            foreach (var j in allTypeJumps)
+            {
+                if (j.Distance > maxFoundDist)
+                {
+                    maxFoundDist = j.Distance;
+                    absolutePbJump = j;
+                }
+            }
+
+            var pbMeta = cs.GetOrCreate(normFilter);
+            if (pbMeta.PBDist > maxFoundDist)
+            {
+                maxFoundDist = pbMeta.PBDist;
+                absolutePbJump = new CS2ConsoleEvent
+                {
+                    JumpType = normFilter,
+                    Distance = pbMeta.PBDist,
+                    Strafes = pbMeta.PBStrafes > 0 ? pbMeta.PBStrafes : 8,
+                    Sync = pbMeta.PBSync > 0 ? pbMeta.PBSync : 80f,
+                    PreSpeed = pbMeta.PBPreSpeed > 0 ? pbMeta.PBPreSpeed : 275f,
+                    MaxSpeed = pbMeta.PBMaxSpeed > 0 ? pbMeta.PBMaxSpeed : 340f,
+                    AvgOverlap = pbMeta.AvgOverlap,
+                    AvgBadAngles = pbMeta.AvgBadAngles,
+                    IsPB = true
+                };
+            }
+
+            // If absolute PB is not in our recent sample window, ensure we can show it
+            int pbJumpIdx = -1;
+            if (absolutePbJump != null)
+            {
+                for (int k = 0; k < jumps.Count; k++)
+                {
+                    if (MathF.Abs(jumps[k].Distance - absolutePbJump.Distance) < 0.01f)
+                    {
+                        pbJumpIdx = k;
+                        break;
+                    }
+                }
+            }
+
+            int rightReserved = (int)(12 * scale);
+            int curBtnRight = tx + tw - rightReserved;
+
+            // Adaptive button width based on available tw
+            int btnCount = 4;
+            int maxBtnBarW = tw - (int)(180 * scale);
+            int dynamicBtnW = Math.Clamp((maxBtnBarW - (btnCount - 1) * 4) / btnCount, 60, (int)(115 * scale));
+
+            // [ЛОГ ПРЫЖКА]
+            curBtnRight -= dynamicBtnW;
+            if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, "ЛОГ ПРЫЖКА", false, 8, enabled: inputActive && jumps.Count > 0))
+            {
+                int curIdx = _selectedTrajectoryJumpIndex;
+                if (curIdx == -2 || curIdx < 0 || curIdx >= jumps.Count) curIdx = lastIdx;
+                if (curIdx >= 0 && curIdx < jumps.Count)
+                {
+                    var j = jumps[curIdx];
+                    _showLogModal = true;
+                    _selectedLogTitle = $"{j.JumpType.ToUpper()} — {j.Distance:F2}u";
+                    _selectedLogContent = !string.IsNullOrEmpty(j.RawLine)
+                        ? j.RawLine
+                        : $"[CS2 Console Watcher] {j.Distance:F4} units | {j.Strafes} str | {j.Sync:F1}% sync | {j.PreSpeed:F1} pre | {j.MaxSpeed:F1} max\nКарта: {j.MapName}\nОтклонение: {j.Deviation:F2} | Airpath: {j.Airpath:F3}\nOverlap: {j.AvgOverlap:F1}ms | Bad Angles: {j.AvgBadAngles:F1}%";
+                    _selectedLogBreakdown = j.StrafeBreakdown;
+                }
+            }
+            curBtnRight -= 4;
+
+            // [СРЕДНИЙ ТРЕК]
+            curBtnRight -= dynamicBtnW;
+            if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, "СРЕДНИЙ", _selectedTrajectoryJumpIndex == -1, 8, enabled: inputActive))
             {
                 _selectedTrajectoryJumpIndex = -1;
             }
-            selX -= 4;
+            curBtnRight -= 4;
 
-            // 2. PB Button
-            int pbJumpIdx = -1;
-            float maxFoundDist = -1;
-            for (int k = 0; k < jumps.Count; k++)
+            // [РЕКОРД (PB)]
+            if (absolutePbJump != null)
             {
-                if (jumps[k].Distance > maxFoundDist)
+                curBtnRight -= dynamicBtnW;
+                string pbLbl = $"PB {absolutePbJump.Distance:F1}u";
+                bool isPbActive = (_selectedTrajectoryJumpIndex == -3 || (_selectedTrajectoryJumpIndex >= 0 && _selectedTrajectoryJumpIndex == pbJumpIdx));
+                if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, pbLbl, isPbActive, 8, enabled: inputActive))
                 {
-                    maxFoundDist = jumps[k].Distance;
-                    pbJumpIdx = k;
+                    _selectedTrajectoryJumpIndex = (pbJumpIdx >= 0) ? pbJumpIdx : -3; // -3 = Dedicated PB fallback
                 }
+                curBtnRight -= 4;
             }
 
-            if (pbJumpIdx >= 0 && pbJumpIdx != lastIdx)
-            {
-                int pbBtnW = (int)(75 * scale);
-                selX -= pbBtnW;
-                string pbLbl = $"PB {jumps[pbJumpIdx].Distance:F1}u";
-                if (Theme.DrawButton(selX, selY, pbBtnW, selBtnH, pbLbl, _selectedTrajectoryJumpIndex == pbJumpIdx, 8, enabled: inputActive))
-                {
-                    _selectedTrajectoryJumpIndex = pbJumpIdx;
-                }
-                selX -= 4;
-            }
-
-            // 3. ПРЕДЫДУЩИЙ Button (Previous jump before latest)
-            if (lastIdx - 1 >= 0)
-            {
-                int prevBtnW = (int)(80 * scale);
-                selX -= prevBtnW;
-                string prevLbl = $"ПРЕД {jumps[lastIdx - 1].Distance:F1}u";
-                if (Theme.DrawButton(selX, selY, prevBtnW, selBtnH, prevLbl, _selectedTrajectoryJumpIndex == lastIdx - 1, 8, enabled: inputActive))
-                {
-                    _selectedTrajectoryJumpIndex = lastIdx - 1;
-                }
-                selX -= 4;
-            }
-
-            // 4. СВЕЖИЙ Button (Freshest / Latest Jump) - Selected by default!
+            // [ПОСЛЕДНИЙ ПРЫЖОК]
             if (lastIdx >= 0)
             {
-                int freshBtnW = (int)(95 * scale);
-                selX -= freshBtnW;
+                curBtnRight -= dynamicBtnW;
                 string freshLbl = $"СВЕЖИЙ {jumps[lastIdx].Distance:F1}u";
                 bool isFreshActive = (_selectedTrajectoryJumpIndex == -2 || _selectedTrajectoryJumpIndex == lastIdx);
-                if (Theme.DrawButton(selX, selY, freshBtnW, selBtnH, freshLbl, isFreshActive, 8, enabled: inputActive))
+                if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, freshLbl, isFreshActive, 8, enabled: inputActive))
                 {
                     _selectedTrajectoryJumpIndex = -2; // Auto-follow fresh jump
                 }
-                selX -= 4;
             }
 
             // 2. Active Jump Telemetry Resolution (Default -2 = Always show freshest latest jump)
+            CS2ConsoleEvent activeJmp;
             int activeIdx = _selectedTrajectoryJumpIndex;
-            if (activeIdx == -2 || activeIdx < 0 || activeIdx >= jumps.Count)
+            if (activeIdx == -3 && absolutePbJump != null)
             {
-                activeIdx = lastIdx;
+                activeJmp = absolutePbJump;
             }
-            var activeJmp = (lastIdx >= 0) ? jumps[activeIdx] : new CS2ConsoleEvent { Distance = 275f, Strafes = 8 };
+            else
+            {
+                if (activeIdx == -2 || activeIdx < 0 || activeIdx >= jumps.Count)
+                {
+                    activeIdx = lastIdx;
+                }
+                activeJmp = (lastIdx >= 0) ? jumps[activeIdx] : (absolutePbJump ?? new CS2ConsoleEvent { Distance = 275f, Strafes = 8 });
+            }
 
             float jumpDist = activeJmp.Distance;
             int jumpStrafes = activeJmp.Strafes > 0 ? activeJmp.Strafes : 8;
@@ -1819,14 +2400,17 @@ namespace LJTrainer.UI
             Raylib.DrawRectangle(cvX, cvY, cvW, cvH, new Color(7, 11, 16, 255));
             Raylib.DrawRectangleLines(cvX, cvY, cvW, cvH, new Color(Theme.Border.R, Theme.Border.G, Theme.Border.B, (byte)75));
 
-            int originX = cvX + cvW / 2;
+            int originX = cvX + (int)(cvW * 0.38f);
             int originY = cvY + cvH - 26;
             int targetY = cvY + 30;
 
             // Dynamic scale: tightly fit the jump height with comfortable margins
             float maxViewDist = MathF.Max(jumpDist + 8f, 250f);
             float pxPerUnitY = (originY - targetY) / maxViewDist;
-            float pxPerUnitX = pxPerUnitY * 2.2f;
+            
+            // Strictly clamp pxPerUnitX so lateral strafes never escape canvas boundaries
+            float maxCanvasHalfW = (cvW * 0.30f);
+            float pxPerUnitX = Math.Clamp(pxPerUnitY * 1.5f, 0.7f, maxCanvasHalfW / 35.0f);
 
             // Proportional Distance Grid lines every 25u (50, 75, 100, 125, 150, 175, 200, 225, 250, 275...)
             for (float d = 25; d <= maxViewDist; d += 25)
@@ -1844,234 +2428,243 @@ namespace LJTrainer.UI
             {
                 Raylib.DrawLine(originX, cy, originX, Math.Max(targetY, cy - 4), new Color(0, 240, 255, 55));
             }
-            Theme.DrawText("ОСЬ X=0 (ИДЕАЛ)", originX + 6, originY - 14, 8, new Color(0, 240, 255, 90));
+            Theme.DrawText("X=0", originX + 6, originY - 14, 8, new Color(0, 240, 255, 90));
 
             // Starting Platform (Takeoff Block)
-            int startBlockW = (int)(70 * scale);
+            int startBlockW = (int)(60 * scale);
             Raylib.DrawRectangle(originX - startBlockW / 2, originY - 4, startBlockW, 8, new Color(0, 255, 128, 40));
             Raylib.DrawRectangleLines(originX - startBlockW / 2, originY - 4, startBlockW, 8, Theme.NeonGreen);
             Theme.DrawText("СТАРТ", originX - 16, originY + 6, 8, Theme.NeonGreen);
 
             // Landing Platform (Target Block)
             int landY = originY - (int)(jumpDist * pxPerUnitY);
-            int landBlockW = (int)(80 * scale);
+            int landBlockW = (int)(70 * scale);
             Raylib.DrawRectangle(originX - landBlockW / 2, landY - 4, landBlockW, 8, new Color(255, 215, 0, 40));
             Raylib.DrawRectangleLines(originX - landBlockW / 2, landY - 4, landBlockW, 8, Theme.NeonGold);
-            Theme.DrawText($"ФИНИШ ({jumpDist:F1}u)", originX - 30, landY - 16, 8, Theme.NeonGold);
+            Theme.DrawText($"ФИНИШ ({jumpDist:F1}u)", originX - 28, landY - 16, 8, Theme.NeonGold);
 
-                // A. Draw Average Trajectory Ghost (Dotted Golden Curve)
-                var ghostJump = new CS2ConsoleEvent
+            // SCISSOR CLIPPING: Guarantee trajectory geometry never leaves the 2D canvas rectangle
+            Raylib.BeginScissorMode(cvX + 1, cvY + 1, cvW - 2, cvH - 2);
+
+            // A. Draw Average Trajectory Ghost (Dotted Golden Curve)
+            var ghostJump = new CS2ConsoleEvent
+            {
+                Distance = jumpDist,
+                Strafes = 8,
+                PreSpeed = 274.6f,
+                MaxSpeed = 335.0f,
+                Sync = 76.0f,
+                Deviation = 0.5f,
+                AvgWidth = 34.0f
+            };
+            var avgPath = GenerateRealisticFlightPath(ghostJump, leftRightBias * 0.4f, -1, prof);
+            for (int i = 0; i < avgPath.Count - 1; i++)
+            {
+                var p1 = avgPath[i].Pos;
+                var p2 = avgPath[i + 1].Pos;
+                int s1X = originX + (int)(p1.X * pxPerUnitX);
+                int s1Y = originY - (int)(p1.Y * pxPerUnitY);
+                int s2X = originX + (int)(p2.X * pxPerUnitX);
+                int s2Y = originY - (int)(p2.Y * pxPerUnitY);
+
+                if (i % 2 == 0)
                 {
-                    Distance = jumpDist,
-                    Strafes = 8,
-                    PreSpeed = 274.6f,
-                    MaxSpeed = 335.0f,
-                    Sync = 76.0f,
-                    Deviation = 0.5f,
-                    AvgWidth = 34.0f
-                };
-                var avgPath = GenerateRealisticFlightPath(ghostJump, leftRightBias * 0.4f, -1, prof);
-                for (int i = 0; i < avgPath.Count - 1; i++)
-                {
-                    var p1 = avgPath[i].Pos;
-                    var p2 = avgPath[i + 1].Pos;
-                    int s1X = originX + (int)(p1.X * pxPerUnitX);
-                    int s1Y = originY - (int)(p1.Y * pxPerUnitY);
-                    int s2X = originX + (int)(p2.X * pxPerUnitX);
-                    int s2Y = originY - (int)(p2.Y * pxPerUnitY);
-
-                    if (i % 2 == 0)
-                    {
-                        Raylib.DrawLine(s1X, s1Y, s2X, s2Y, new Color(255, 215, 0, 95));
-                    }
-                }
-
-                // B. Draw Active Jump Trajectory with KZ Laser Beam Trail and Highlights
-                TrajPoint? hoverPoint = null;
-                Vector2 hoverScreenPos = Vector2.Zero;
-
-                if (_selectedTrajectoryJumpIndex != -1 && pathPoints.Count > 1)
-                {
-                    // Generate smooth Catmull-Rom spline points for the 2D airpath
-                    List<(Vector2 ScreenPos, TrajPoint Point)> smoothPath = new();
-                    int subdivisions = 6;
-
-                    for (int i = 0; i < pathPoints.Count - 1; i++)
-                    {
-                        var pt0 = i > 0 ? pathPoints[i - 1] : pathPoints[i];
-                        var pt1 = pathPoints[i];
-                        var pt2 = pathPoints[i + 1];
-                        var pt3 = i + 2 < pathPoints.Count ? pathPoints[i + 2] : pt2;
-
-                        for (int s = 0; s < subdivisions; s++)
-                        {
-                            float t = s / (float)subdivisions;
-                            float t2 = t * t;
-                            float t3 = t2 * t;
-
-                            Vector2 p0 = new(originX + pt0.Pos.X * pxPerUnitX, originY - pt0.Pos.Y * pxPerUnitY);
-                            Vector2 p1 = new(originX + pt1.Pos.X * pxPerUnitX, originY - pt1.Pos.Y * pxPerUnitY);
-                            Vector2 p2 = new(originX + pt2.Pos.X * pxPerUnitX, originY - pt2.Pos.Y * pxPerUnitY);
-                            Vector2 p3 = new(originX + pt3.Pos.X * pxPerUnitX, originY - pt3.Pos.Y * pxPerUnitY);
-
-                            Vector2 sp = 0.5f * (
-                                (2f * p1) +
-                                (-p0 + p2) * t +
-                                (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
-                                (-p0 + 3f * p1 - 3f * p2 + p3) * t3
-                            );
-
-                            smoothPath.Add((sp, pt1));
-                        }
-                    }
-                    var lastPt = pathPoints[^1];
-                    smoothPath.Add((new Vector2(originX + lastPt.Pos.X * pxPerUnitX, originY - lastPt.Pos.Y * pxPerUnitY), lastPt));
-
-                    // Render smooth glowing laser beam segments
-                    float trajAnim = (float)Raylib.GetTime();
-                    for (int i = 0; i < smoothPath.Count - 1; i++)
-                    {
-                        var (sp1, pt1) = smoothPath[i];
-                        var (sp2, _) = smoothPath[i + 1];
-
-                        Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
-
-                        // Pulse animation along the curve
-                        float pulseGlow = (MathF.Sin(trajAnim * 4f - i * 0.08f) * 0.5f + 0.5f);
-
-                        if (pt1.IsOverlap)
-                        {
-                            segCol = Theme.NeonRed;
-                            Raylib.DrawLineEx(sp1, sp2, 5.8f + pulseGlow * 1.5f, new Color((byte)255, (byte)40, (byte)40, (byte)(70 + pulseGlow * 40)));
-                            Raylib.DrawLineEx(sp1, sp2, 3.2f, Theme.NeonRed);
-                            Raylib.DrawLineEx(sp1, sp2, 1.2f, new Color(255, 255, 255, 180));
-                        }
-                        else if (pt1.IsBadAngle)
-                        {
-                            segCol = Theme.NeonOrange;
-                            Raylib.DrawLineEx(sp1, sp2, 5.2f + pulseGlow * 1.2f, new Color((byte)255, (byte)140, (byte)0, (byte)(65 + pulseGlow * 35)));
-                            Raylib.DrawLineEx(sp1, sp2, 3.0f, Theme.NeonOrange);
-                            Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 160));
-                        }
-                        else
-                        {
-                            Raylib.DrawLineEx(sp1, sp2, 5.0f + pulseGlow * 1.5f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)(60 + pulseGlow * 45)));
-                            Raylib.DrawLineEx(sp1, sp2, 2.6f, segCol);
-                            Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 140));
-                        }
-
-                        // Check hover
-                        if (Vector2.Distance(mouse, sp1) < 8.0f)
-                        {
-                            hoverPoint = pt1;
-                            hoverScreenPos = sp1;
-                        }
-                    }
-
-                    // Waypoint markers at strafe start (Large, crisp, glowing badges)
-                    for (int i = 1; i < pathPoints.Count; i++)
-                    {
-                        var pt1 = pathPoints[i];
-                        if (pt1.StrafeIndex != pathPoints[i - 1].StrafeIndex)
-                        {
-                            int s1X = originX + (int)(pt1.Pos.X * pxPerUnitX);
-                            int s1Y = originY - (int)(pt1.Pos.Y * pxPerUnitY);
-                            Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
-
-                            // 1. Large glowing point on trajectory
-                            Raylib.DrawCircle(s1X, s1Y, 8.5f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)60));
-                            Raylib.DrawCircle(s1X, s1Y, 6.0f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)180));
-                            Raylib.DrawCircle(s1X, s1Y, 4.0f, segCol);
-                            Raylib.DrawCircle(s1X, s1Y, 2.0f, Theme.TextWhite);
-
-                            // 2. Clear floating Badge Pill for Strafe Number
-                            string sLabel = $"S{pt1.StrafeIndex + 1}";
-                            int labelW = Theme.MeasureText(sLabel, 10) + 10;
-                            int labelH = (int)(18 * scale);
-
-                            bool isLeft = (pt1.StrafeIndex % 2 == 0);
-                            int labelX = isLeft ? (s1X - labelW - 8) : (s1X + 8);
-                            int labelY = s1Y - labelH / 2;
-
-                            // Badge background + border + glow
-                            Raylib.DrawRectangle(labelX, labelY, labelW, labelH, new Color(12, 17, 26, 230));
-                            Raylib.DrawRectangleLines(labelX, labelY, labelW, labelH, segCol);
-                            Raylib.DrawRectangle(labelX, labelY, 3, labelH, segCol);
-
-                            Theme.DrawText(sLabel, labelX + 6, labelY + 2, 10, Theme.TextWhite);
-                        }
-                    }
-
-                    // Landing point & Deviation vector
-                    var landPt = pathPoints[^1].Pos;
-                    int finalLandX = originX + (int)(landPt.X * pxPerUnitX);
-                    int finalLandY = originY - (int)(landPt.Y * pxPerUnitY);
-
-                    // Landing Marker Halo
-                    Raylib.DrawCircle(finalLandX, finalLandY, 7f, new Color(255, 215, 0, 80));
-                    Raylib.DrawCircle(finalLandX, finalLandY, 4.5f, Theme.NeonGold);
-                    Raylib.DrawCircle(finalLandX, finalLandY, 2.0f, Theme.TextWhite);
-
-                    // Horizontal deviation vector from centerline to landing point
-                    if (MathF.Abs(finalLateralDrift) > 0.5f)
-                    {
-                        Color devCol = MathF.Abs(finalLateralDrift) <= 6.0f ? Theme.NeonGreen : Theme.NeonOrange;
-                        Raylib.DrawLineEx(new Vector2(originX, finalLandY), new Vector2(finalLandX, finalLandY), 1.5f, devCol);
-                        string driftStr = finalLateralDrift >= 0 ? $"+{finalLateralDrift:F1}u" : $"-{MathF.Abs(finalLateralDrift):F1}u";
-                        int dX = (originX + finalLandX) / 2 - 12;
-                        Theme.DrawText(driftStr, dX, finalLandY + 5, 8, devCol);
-                    }
-                }
-
-                DrawTrajectoryHudOverlays(cvX, cvY, cvW, cvH, scale, normFilter, jumpDist, jumpStrafes, jumpPre, jumpMax, jumpSync, jumpOverlap, jumpBad, finalLateralDrift, jumpWidth, prof);
-
-                // Detailed Point Telemetry Tooltip
-                if (hoverPoint != null)
-                {
-                    int tipW = (int)(260 * scale);
-                    int tipH = (int)(26 * scale);
-                    int tipX = (int)hoverScreenPos.X - tipW / 2;
-                    int tipY = (int)hoverScreenPos.Y - tipH - 8;
-                    tipX = Math.Clamp(tipX, cvX + 4, cvX + cvW - tipW - 4);
-
-                    Color tipBorder = hoverPoint.IsOverlap || hoverPoint.IsBadAngle ? Theme.NeonRed : Theme.NeonCyan;
-                    Raylib.DrawRectangle(tipX, tipY, tipW, tipH, new Color(10, 14, 22, 245));
-                    Raylib.DrawRectangleLines(tipX, tipY, tipW, tipH, tipBorder);
-                    Theme.DrawText(hoverPoint.Note, tipX + 8, tipY + 6, 8, hoverPoint.IsOverlap || hoverPoint.IsBadAngle ? Theme.NeonRed : Theme.TextWhite);
+                    Raylib.DrawLine(s1X, s1Y, s2X, s2Y, new Color(255, 215, 0, 95));
                 }
             }
 
+            // B. Draw Active Jump Trajectory with KZ Laser Beam Trail and Highlights
+            TrajPoint? hoverPoint = null;
+            Vector2 hoverScreenPos = Vector2.Zero;
+
+            if (pathPoints.Count > 1)
+            {
+                // Interpolate smoothly through strafe points with Catmull-Rom spline
+                var smoothPath = new List<(Vector2 Pos, TrajPoint Pt)>();
+                for (int i = 0; i < pathPoints.Count - 1; i++)
+                {
+                    var pt0 = (i > 0) ? pathPoints[i - 1] : pathPoints[i];
+                    var pt1 = pathPoints[i];
+                    var pt2 = pathPoints[i + 1];
+                    var pt3 = (i + 2 < pathPoints.Count) ? pathPoints[i + 2] : pt2;
+
+                    Vector2 p0 = new(originX + pt0.Pos.X * pxPerUnitX, originY - pt0.Pos.Y * pxPerUnitY);
+                    Vector2 p1 = new(originX + pt1.Pos.X * pxPerUnitX, originY - pt1.Pos.Y * pxPerUnitY);
+                    Vector2 p2 = new(originX + pt2.Pos.X * pxPerUnitX, originY - pt2.Pos.Y * pxPerUnitY);
+                    Vector2 p3 = new(originX + pt3.Pos.X * pxPerUnitX, originY - pt3.Pos.Y * pxPerUnitY);
+
+                    int steps = 10;
+                    for (int st = 0; st < steps; st++)
+                    {
+                        float t = st / (float)steps;
+                        float t2 = t * t;
+                        float t3 = t2 * t;
+
+                        Vector2 sp = 0.5f * (
+                            (2f * p1) +
+                            (-p0 + p2) * t +
+                            (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                            (-p0 + 3f * p1 - 3f * p2 + p3) * t3
+                        );
+                        smoothPath.Add((sp, pt1));
+                    }
+                }
+                var lastPt = pathPoints[^1];
+                smoothPath.Add((new Vector2(originX + lastPt.Pos.X * pxPerUnitX, originY - lastPt.Pos.Y * pxPerUnitY), lastPt));
+
+                // Render smooth glowing laser beam segments
+                float trajAnim = (float)Raylib.GetTime();
+                for (int i = 0; i < smoothPath.Count - 1; i++)
+                {
+                    var (sp1, pt1) = smoothPath[i];
+                    var (sp2, _) = smoothPath[i + 1];
+
+                    Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
+
+                    // Pulse animation along the curve
+                    float pulseGlow = (MathF.Sin(trajAnim * 4f - i * 0.08f) * 0.5f + 0.5f);
+
+                    if (pt1.IsOverlap)
+                    {
+                        segCol = Theme.NeonRed;
+                        Raylib.DrawLineEx(sp1, sp2, 5.8f + pulseGlow * 1.5f, new Color((byte)255, (byte)40, (byte)40, (byte)(70 + pulseGlow * 40)));
+                        Raylib.DrawLineEx(sp1, sp2, 3.2f, Theme.NeonRed);
+                        Raylib.DrawLineEx(sp1, sp2, 1.2f, new Color(255, 255, 255, 180));
+                    }
+                    else if (pt1.IsBadAngle)
+                    {
+                        segCol = Theme.NeonOrange;
+                        Raylib.DrawLineEx(sp1, sp2, 5.2f + pulseGlow * 1.2f, new Color((byte)255, (byte)140, (byte)0, (byte)(65 + pulseGlow * 35)));
+                        Raylib.DrawLineEx(sp1, sp2, 3.0f, Theme.NeonOrange);
+                        Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 160));
+                    }
+                    else
+                    {
+                        Raylib.DrawLineEx(sp1, sp2, 5.0f + pulseGlow * 1.5f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)(60 + pulseGlow * 45)));
+                        Raylib.DrawLineEx(sp1, sp2, 2.6f, segCol);
+                        Raylib.DrawLineEx(sp1, sp2, 1.0f, new Color(255, 255, 255, 140));
+                    }
+
+                    // Check hover
+                    if (Vector2.Distance(mouse, sp1) < 8.0f)
+                    {
+                        hoverPoint = pt1;
+                        hoverScreenPos = sp1;
+                    }
+                }
+
+                // Waypoint markers at strafe start (Large, crisp, glowing badges)
+                for (int i = 1; i < pathPoints.Count; i++)
+                {
+                    var pt1 = pathPoints[i];
+                    if (pt1.StrafeIndex != pathPoints[i - 1].StrafeIndex)
+                    {
+                        int s1X = originX + (int)(pt1.Pos.X * pxPerUnitX);
+                        int s1Y = originY - (int)(pt1.Pos.Y * pxPerUnitY);
+                        Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
+
+                        // 1. Large glowing point on trajectory
+                        Raylib.DrawCircle(s1X, s1Y, 7.5f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)60));
+                        Raylib.DrawCircle(s1X, s1Y, 5.0f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)180));
+                        Raylib.DrawCircle(s1X, s1Y, 3.5f, segCol);
+                        Raylib.DrawCircle(s1X, s1Y, 1.5f, Theme.TextWhite);
+
+                        // 2. Clear floating Badge Pill for Strafe Number
+                        string sLabel = $"S{pt1.StrafeIndex + 1}";
+                        int labelW = Theme.MeasureText(sLabel, 9) + 8;
+                        int labelH = (int)(16 * scale);
+
+                        bool isLeft = (pt1.StrafeIndex % 2 == 0);
+                        int labelX = isLeft ? (s1X - labelW - 6) : (s1X + 6);
+                        int labelY = s1Y - labelH / 2;
+
+                        // Badge background + border + glow
+                        Raylib.DrawRectangle(labelX, labelY, labelW, labelH, new Color(12, 17, 26, 230));
+                        Raylib.DrawRectangleLines(labelX, labelY, labelW, labelH, segCol);
+                        Raylib.DrawRectangle(labelX, labelY, 3, labelH, segCol);
+
+                        Theme.DrawText(sLabel, labelX + 5, labelY + 2, 9, Theme.TextWhite);
+                    }
+                }
+
+                // Landing point & Deviation vector
+                var landPt = pathPoints[^1].Pos;
+                int finalLandX = originX + (int)(landPt.X * pxPerUnitX);
+                int finalLandY = originY - (int)(landPt.Y * pxPerUnitY);
+
+                // Landing Marker Halo
+                Raylib.DrawCircle(finalLandX, finalLandY, 7f, new Color(255, 215, 0, 80));
+                Raylib.DrawCircle(finalLandX, finalLandY, 4.5f, Theme.NeonGold);
+                Raylib.DrawCircle(finalLandX, finalLandY, 2.0f, Theme.TextWhite);
+
+                // Horizontal deviation vector from centerline to landing point
+                if (MathF.Abs(finalLateralDrift) > 0.5f)
+                {
+                    Color devCol = MathF.Abs(finalLateralDrift) <= 6.0f ? Theme.NeonGreen : Theme.NeonOrange;
+                    Raylib.DrawLineEx(new Vector2(originX, finalLandY), new Vector2(finalLandX, finalLandY), 1.5f, devCol);
+                    string driftStr = finalLateralDrift >= 0 ? $"+{finalLateralDrift:F1}u" : $"-{MathF.Abs(finalLateralDrift):F1}u";
+                    int dX = (originX + finalLandX) / 2 - 12;
+                    Theme.DrawText(driftStr, dX, finalLandY + 5, 8, devCol);
+                }
+            }
+
+            Raylib.EndScissorMode();
+
+            DrawTrajectoryHudOverlays(cvX, cvY, cvW, cvH, scale, normFilter, activeJmp, jumpDist, jumpStrafes, jumpPre, jumpMax, jumpSync, jumpOverlap, jumpBad, finalLateralDrift, jumpWidth, prof);
+        }
+
         private static void DrawTrajectoryHudOverlays(
             int cvX, int cvY, int cvW, int cvH, float scale, string normFilter, 
-            float jumpDist, int jumpStrafes, float jumpPre, float jumpMax, float jumpSync, 
+            CS2ConsoleEvent activeJmp, float jumpDist, int jumpStrafes, float jumpPre, float jumpMax, float jumpSync, 
             float jumpOverlap, float jumpBad, float finalLateralDrift, float jumpWidth, UserProfile prof)
         {
             string driftDir = finalLateralDrift > 0.5f ? "D" : (finalLateralDrift < -0.5f ? "A" : "Center");
             Color driftAccent = MathF.Abs(finalLateralDrift) <= 6.0f ? Theme.NeonGreen : Theme.NeonOrange;
 
-            // 1. Direct Crisp Telemetry Text in Top-Right Corner (NO BLOCKING BOX / PLAQUE)
-            int infoX = cvX + cvW - (int)(200 * scale);
-            int infoY = cvY + 8;
+            // 1. Direct Crisp Telemetry Text in Top-Right Corner (PINNED STRICTLY TO PANEL RIGHT EDGE)
+            string blockSuffix = "";
+            Color line1Col = Theme.NeonCyan;
+            if (activeJmp.BlockDistance > 0)
+            {
+                var (bTier, _, bCol, _) = GetBlockTier(normFilter, activeJmp.BlockDistance);
+                blockSuffix = $" • БЛОК: {activeJmp.BlockDistance:F0} [{bTier}]";
+                line1Col = bCol;
+            }
+            else
+            {
+                var (dTier, _, dCol, _) = GetKzTier(normFilter, jumpDist);
+                line1Col = dCol;
+            }
 
-            Theme.DrawText($"{normFilter.ToUpper()}: {jumpDist:F2}u ({jumpStrafes} str)", infoX, infoY, 9, Theme.NeonCyan);
-            Theme.DrawText($"Pre: {jumpPre:F0} u/s • Max: {jumpMax:F0} • Sync: {jumpSync:F0}%", infoX, infoY + 15, 8, Theme.TextWhite);
+            string line1 = $"{normFilter.ToUpper()}: {jumpDist:F2}u ({jumpStrafes} str){blockSuffix}";
+            string line2 = $"Pre: {jumpPre:F0} u/s • Max: {jumpMax:F0} • Sync: {jumpSync:F0}%";
             string widthText = jumpWidth > 15f ? $" • Угол: {jumpWidth:F0}°" : "";
-            Theme.DrawText($"Снос dX: {MathF.Abs(finalLateralDrift):F1}u ({driftDir}){widthText}", infoX, infoY + 30, 8, driftAccent);
+            string line3 = $"Снос dX: {MathF.Abs(finalLateralDrift):F1}u ({driftDir}){widthText}";
 
-            // 2. Bottom-Right Per-Strafe Status (Clean Minimal Transparent List)
-            int hud3W = (int)(150 * scale);
-            int hud3H = (int)(95 * scale);
-            int hud3X = cvX + cvW - hud3W - 8;
+            int padRight = 16;
+            int infoY = cvY + 10;
+
+            Theme.DrawText(line1, cvX + cvW - Theme.MeasureText(line1, 9) - padRight, infoY, 9, line1Col);
+            Theme.DrawText(line2, cvX + cvW - Theme.MeasureText(line2, 8) - padRight, infoY + 16, 8, Theme.TextWhite);
+            Theme.DrawText(line3, cvX + cvW - Theme.MeasureText(line3, 8) - padRight, infoY + 32, 8, driftAccent);
+
+            // 2. Bottom-Right Per-Strafe Status (PURE TEXT HUD PINNED TO THE RIGHT)
+            int hud3W = (int)(155 * scale);
+            int hud3H = (int)(100 * scale);
+            int hud3X = cvX + cvW - hud3W - 6;
             int hud3Y = cvY + cvH - hud3H - 6;
 
-            Theme.DrawText("ПОСТРЕЙФОВЫЙ СТАТУС:", hud3X, hud3Y, 8, Theme.NeonGold);
+            // Header shifted to right
+            string titleH = "ПОСТРЕЙФОВЫЙ СТАТУС:";
+            int titleW = Theme.MeasureText(titleH, 8);
+            Theme.DrawText(titleH, hud3X + hud3W - titleW - 4, hud3Y, 8, Theme.NeonGold);
 
             int miniRowH = (int)(10 * scale);
             int countToDraw = Math.Min(8, jumpStrafes);
             for (int s = 0; s < countToDraw; s++)
             {
-                int sRowY = hud3Y + (int)(14 * scale) + s * miniRowH;
-                if (sRowY + miniRowH > cvY + cvH - 4) break;
+                int sRowY = hud3Y + (int)(13 * scale) + s * miniRowH;
+                if (sRowY + miniRowH > hud3Y + hud3H) break;
 
                 bool isLeft = (s % 2 == 0);
                 string sideKey = isLeft ? "A" : "D";
@@ -2084,13 +2677,32 @@ namespace LJTrainer.UI
                 Color errCol = errTag.Contains("OK") ? Theme.NeonGreen : (errTag.Contains("OVERLAP") ? Theme.NeonRed : Theme.NeonOrange);
 
                 Color strCol = Theme.StrafeColors[s % Theme.StrafeColors.Length];
-                Raylib.DrawCircle(hud3X + 4, sRowY + 4, 2.5f, strCol);
-                Theme.DrawText($"S{s + 1}({sideKey})", hud3X + 10, sRowY, 8, Theme.TextWhite);
-                Theme.DrawText($"{sSync:F0}%", hud3X + 40, sRowY, 8, Theme.NeonCyan);
-                Theme.DrawText(errTag, hud3X + 70, sRowY, 8, errCol);
+
+                // Right-aligned column layout:
+                // [OK / RUSH / OVERLAP] pinned to the right edge (X = hud3X + hud3W - errW - 2)
+                int errW = Theme.MeasureText(errTag, 8);
+                int errX = hud3X + hud3W - errW - 2;
+
+                // Sync % before error tag
+                string syncText = $"{sSync:F0}%";
+                int syncW = Theme.MeasureText(syncText, 8);
+                int syncX = errX - syncW - 6;
+
+                // Strafe label before sync %
+                string strafeText = $"S{s + 1}({sideKey})";
+                int strW = Theme.MeasureText(strafeText, 8);
+                int strX = syncX - strW - 6;
+
+                // Circle dot before strafe label
+                int dotX = strX - 6;
+
+                Raylib.DrawCircle(dotX, sRowY + 4, 2.5f, strCol);
+                Theme.DrawText(strafeText, strX, sRowY, 8, Theme.TextWhite);
+                Theme.DrawText(syncText, syncX, sRowY, 8, Theme.NeonCyan);
+                Theme.DrawText(errTag, errX, sRowY, 8, errCol);
             }
 
-            // 3. Bottom-Left Clean Legend
+            // 3. Bottom-Left Clean Legend (PINNED TO BOTTOM LEFT)
             int legY = cvY + cvH - 22;
             Raylib.DrawLine(cvX + 12, legY + 4, cvX + 26, legY + 4, Theme.NeonCyan);
             Theme.DrawText("Траектория S1..S8", cvX + 30, legY, 8, Theme.NeonCyan);
@@ -2187,8 +2799,8 @@ namespace LJTrainer.UI
                 strafeEndY[s] = (s == strafes - 1) ? distance : accumY;
             }
 
-            // Real physical landing drift
-            float targetDrift = deviation;
+            // Real physical landing drift (Deviation from CKZ is usually between -20u and +20u)
+            float targetDrift = Math.Clamp(deviation, -25f, 25f);
             if (MathF.Abs(deviation) < 0.05f && MathF.Abs(rightBias) > 4.0f)
             {
                 targetDrift = (rightBias > 0 ? 1f : -1f) * 3.5f;
@@ -2226,26 +2838,18 @@ namespace LJTrainer.UI
                     sAngle *= MathF.Max(0.72f, 1.0f - (rightBias * 0.012f));
                 }
 
-                // Arc amplitude in units directly derived from turn angle
-                float rad = sAngle * (MathF.PI / 180f);
-                float arcAmplitude;
-                if (sAngle >= 90.0f)
-                {
-                    // Wide sweep / hook turn (e.g. 127° hook in screenshot 2)
-                    arcAmplitude = MathF.Sin(Math.Min(sAngle, 140f) * (MathF.PI / 180f)) * (sLenY * 0.85f) + (sAngle - 80f) * 0.35f;
-                }
-                else
-                {
-                    arcAmplitude = MathF.Tan(rad * 0.65f) * (sLenY * 0.45f);
-                }
+                // Realistic physical lateral wave amplitude in CS2 (typical strafe width is 8u to 26u)
+                float clampedAngle = Math.Clamp(sAngle, 15f, 90f);
+                float rad = clampedAngle * (MathF.PI / 180f);
+                float arcAmplitude = Math.Clamp(MathF.Sin(rad * 0.5f) * (sLenY * 0.38f), 6.0f, 24.0f);
 
-                if (sBad > 20.0f) arcAmplitude *= (1.0f + (sBad - 20f) * 0.012f);
+                if (sBad > 20.0f) arcAmplitude *= (1.0f + (sBad - 20f) * 0.008f);
 
                 for (int k = 1; k <= ticksPerStrafe; k++)
                 {
                     float u = (float)k / ticksPerStrafe;
                     float curY = sStartY + sLenY * u;
-                    float totalProgress = curY / distance;
+                    float totalProgress = Math.Clamp(curY / distance, 0f, 1f);
 
                     float strafeWaveX = MathF.Sin(u * MathF.PI) * arcAmplitude * dir;
 
@@ -2259,7 +2863,7 @@ namespace LJTrainer.UI
                         currentSpeed = MathF.Min(maxSpeed, currentSpeed + (0.95f * (sSync / 100.0f)));
                     }
 
-                    float driftX = targetDrift * MathF.Pow(totalProgress, 1.12f);
+                    float driftX = targetDrift * totalProgress;
                     float curX = strafeWaveX + driftX;
 
                     bool isOverlapTick = (sOver > 15.0f && u < 0.35f);

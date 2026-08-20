@@ -32,6 +32,7 @@ namespace LJTrainer.Core
         // Jump telemetry
         public bool IsJumpStat { get; set; }
         public float Distance { get; set; }
+        public float BlockDistance { get; set; } = 0f;
         public float Sync { get; set; }
         public float PreSpeed { get; set; }
         public float MaxSpeed { get; set; }
@@ -84,14 +85,15 @@ namespace LJTrainer.Core
 
         public static event Action<CS2ConsoleEvent>? OnConsoleEvent;
 
-        // "issushenij jumped 269.2057 units with a Long Jump"
+        // "issushenij jumped 269.2057 units (Block: 260) with a Long Jump" or "issushenij jumped 269.2057 units with a Long Jump"
         private static readonly Regex JumpedPattern = new(
-            @"^([a-zA-Z0-9_\-\.\s]+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units\s+with\s+a\s+([\w\s\-]+)",
+            @"^([a-zA-Z0-9_\-\.\s\[\]{}()]+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units(?:\s*\(?(?:Block|Блок):\s*([0-9]+(?:\.[0-9]+)?)\)?)?\s+with\s+a\s+([\w\s\-]+)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // "CKZ | 238 Block | 8 Strafes | 55.56% AvgSync | 275.38 Pre | 344.17 Max | 30.30% AvgBadAngles | 0.00% AvgOverlap | 14.14% AvgDeadAir | JumpDirection: Forwards"
         // "CKZ | 9 Strafes | 57.39% AvgSync | 270.61 Pre | 337.69 Max | 14.33% AvgBadAngles | 23.23% AvgOverlap | 3.03% AvgDeadAir | JumpDirection: Forwards"
         private static readonly Regex CkzPattern = new(
-            @"CKZ\s*\|\s*(\d+)\s*Strafes\s*\|\s*([0-9.]+)%\s*AvgSync\s*\|\s*([0-9.]+)\s*Pre\s*\|\s*([0-9.]+)\s*Max(?:\s*\|\s*([0-9.]+)%\s*AvgBadAngles)?(?:\s*\|\s*([0-9.]+)%\s*AvgOverlap)?(?:\s*\|\s*([0-9.]+)%\s*AvgDeadAir)?(?:\s*\|\s*JumpDirection:\s*(\w+))?",
+            @"CKZ\s*\|(?:\s*([0-9.]+)\s*(?:Block|Блок)\s*\|)?\s*(\d+)\s*Strafes\s*\|\s*([0-9.]+)%\s*AvgSync\s*\|\s*([0-9.]+)\s*Pre\s*\|\s*([0-9.]+)\s*Max(?:\s*\|\s*([0-9.]+)%\s*AvgBadAngles)?(?:\s*\|\s*([0-9.]+)%\s*AvgOverlap)?(?:\s*\|\s*([0-9.]+)%\s*AvgDeadAir)?(?:\s*\|\s*JumpDirection:\s*(\w+))?",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Cybershoke Line 3: "51.40 Deviation | 1.024 Airpath | 53.37% AvgGainEff | 0.00 AvgLoss | 33.83° AvgWidth | 0.00 Offset | 0.00/0.00 Crouched | 55.83 Height | ✓ W"
@@ -237,7 +239,7 @@ namespace LJTrainer.Core
                 return;
             }
 
-            // 2. Jump line 1 ("issushenij jumped 269.2057 units with a Long Jump")
+            // 2. Jump line 1 ("issushenij jumped 269.2057 units (Block: 260) with a Long Jump")
             var mJumped = JumpedPattern.Match(line);
             if (mJumped.Success)
             {
@@ -251,7 +253,12 @@ namespace LJTrainer.Core
 
                 string nick = mJumped.Groups[1].Value.Trim();
                 float.TryParse(mJumped.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float dist);
-                string jType = mJumped.Groups[3].Value.Trim();
+                float blockDist = 0f;
+                if (mJumped.Groups[3].Success)
+                {
+                    float.TryParse(mJumped.Groups[3].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out blockDist);
+                }
+                string jType = mJumped.Groups[4].Value.Trim();
 
                 if (!string.IsNullOrEmpty(nick))
                 {
@@ -268,6 +275,7 @@ namespace LJTrainer.Core
                     PlayerNick = nick,
                     IsJumpStat = true,
                     Distance = dist,
+                    BlockDistance = blockDist,
                     JumpType = jType,
                     MapName = CurrentMap,
                     Timestamp = DateTime.Now
@@ -275,18 +283,24 @@ namespace LJTrainer.Core
                 return; // Wait for immediate next CKZ line with telemetry
             }
 
-            // 3. CKZ Telemetry line 2
+            // 3. CKZ Telemetry line 2 ("CKZ | 238 Block | 8 Strafes | 55.56% AvgSync...") or ("CKZ | 9 Strafes...")
             var mCkz = CkzPattern.Match(line);
             if (mCkz.Success)
             {
-                int.TryParse(mCkz.Groups[1].Value, out int strafes);
-                float.TryParse(mCkz.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float sync);
-                float.TryParse(mCkz.Groups[3].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float pre);
-                float.TryParse(mCkz.Groups[4].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float max);
-                float.TryParse(mCkz.Groups[5].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float badAngles);
-                float.TryParse(mCkz.Groups[6].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float overlap);
-                float.TryParse(mCkz.Groups[7].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float deadAir);
-                string jumpDir = mCkz.Groups[8].Value;
+                float blockFromCkz = 0f;
+                if (mCkz.Groups[1].Success)
+                {
+                    float.TryParse(mCkz.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out blockFromCkz);
+                }
+
+                int.TryParse(mCkz.Groups[2].Value, out int strafes);
+                float.TryParse(mCkz.Groups[3].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float sync);
+                float.TryParse(mCkz.Groups[4].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float pre);
+                float.TryParse(mCkz.Groups[5].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float max);
+                float.TryParse(mCkz.Groups[6].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float badAngles);
+                float.TryParse(mCkz.Groups[7].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float overlap);
+                float.TryParse(mCkz.Groups[8].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float deadAir);
+                string jumpDir = mCkz.Groups[9].Value;
 
                 var evt = _pendingJumpEvt ?? new CS2ConsoleEvent
                 {
@@ -295,6 +309,16 @@ namespace LJTrainer.Core
                     MapName = CurrentMap,
                     Timestamp = DateTime.Now
                 };
+
+                if (_pendingJumpEvt != null)
+                {
+                    evt.RawLine += "\n" + rawLine;
+                }
+
+                if (blockFromCkz > 0)
+                {
+                    evt.BlockDistance = blockFromCkz;
+                }
 
                 evt.Strafes = strafes;
                 evt.Sync = sync;
@@ -330,6 +354,11 @@ namespace LJTrainer.Core
                     Timestamp = DateTime.Now
                 };
 
+                if (_pendingJumpEvt != null)
+                {
+                    evt.RawLine += "\n" + rawLine;
+                }
+
                 evt.Deviation = deviation;
                 evt.Airpath = airpath;
                 evt.AvgGainEff = avgGainEff;
@@ -347,6 +376,7 @@ namespace LJTrainer.Core
             var mStrafe = StrafeRowPattern.Match(line);
             if (mStrafe.Success && _pendingJumpEvt != null)
             {
+                _pendingJumpEvt.RawLine += "\n" + rawLine;
                 int.TryParse(mStrafe.Groups[1].Value, out int sIdx);
                 float.TryParse(mStrafe.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float sSync);
                 float.TryParse(mStrafe.Groups[3].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float sGain);
@@ -379,17 +409,18 @@ namespace LJTrainer.Core
             if (_pendingJumpEvt != null)
             {
                 var mLK = LeftKeyPattern.Match(line);
-                if (mLK.Success) { _pendingJumpEvt.LeftKeySequence = mLK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
+                if (mLK.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.LeftKeySequence = mLK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
 
                 var mRK = RightKeyPattern.Match(line);
-                if (mRK.Success) { _pendingJumpEvt.RightKeySequence = mRK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
+                if (mRK.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.RightKeySequence = mRK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
 
                 var mLM = LeftMousePattern.Match(line);
-                if (mLM.Success) { _pendingJumpEvt.LeftMouseSequence = mLM.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
+                if (mLM.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.LeftMouseSequence = mLM.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
 
                 var mRM = RightMousePattern.Match(line);
                 if (mRM.Success)
                 {
+                    _pendingJumpEvt.RawLine += "\n" + rawLine;
                     _pendingJumpEvt.RightMouseSequence = mRM.Groups[1].Value.Trim();
                     // Final line of table sequence! Flush jump event.
                     var evt = _pendingJumpEvt;
@@ -401,8 +432,10 @@ namespace LJTrainer.Core
                     return;
                 }
 
-                if (line.StartsWith("#.") || line.StartsWith("Sync") || line.StartsWith("LEFT KEY") || line.StartsWith("RIGHT KEY"))
+                // Any telemetry headers, empty lines or table separators belong to this jump log
+                if (line.StartsWith("#.") || line.StartsWith("Sync") || line.StartsWith("LEFT KEY") || line.StartsWith("RIGHT KEY") || line.StartsWith("LEFT MOUSE") || line.StartsWith("RIGHT MOUSE") || string.IsNullOrWhiteSpace(line))
                 {
+                    _pendingJumpEvt.RawLine += "\n" + rawLine;
                     LastActivityTime = DateTime.Now;
                     return;
                 }

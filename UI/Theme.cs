@@ -83,8 +83,8 @@ namespace LJTrainer.UI
 
         public static int GetScaledFontSize(int baseSize)
         {
-            float scale = Math.Clamp(AppConfig.Instance.UiScale, 0.8f, 2.0f);
-            return Math.Max(10, (int)Math.Round(baseSize * scale));
+            float scale = Math.Clamp(AppConfig.Instance.UiScale, 0.8f, 1.6f);
+            return Math.Max(8, (int)Math.Round(baseSize * scale));
         }
 
         public static void DrawText(string text, int x, int y, int fontSize, Color color)
@@ -356,46 +356,78 @@ namespace LJTrainer.UI
             Raylib.DrawCircleV(beadPos, 2.0f * s, color);
         }
 
-        public static void DrawSpeakerIcon(int cx, int cy, int size, Color color, bool muted)
+        public static void DrawSpeakerIcon(int cx, int cy, int size, Color color, bool muted, float volume = 1.0f)
         {
-            float s = size / 20.0f;
+            // Exact vector representation of user's SVG icons (speaker_high, speaker_low, speaker_mute)
+            // Normalized from 24x24 SVG coordinate space to screen pixel space
+            float s = size / 24.0f;
+            float ox = cx - 12.0f * s;
+            float oy = cy - 12.0f * s;
+            float strokeW = MathF.Max(1.6f, 1.7f * s);
 
-            // Speaker Base Box
-            int boxW = (int)(4.0f * s);
-            int boxH = (int)(6.0f * s);
-            int boxX = cx - (int)(7.0f * s);
-            int boxY = cy - boxH / 2;
-            Raylib.DrawRectangle(boxX, boxY, boxW, boxH, color);
-
-            // Speaker Flare Cone (Polygon)
-            Vector2 p1 = new(boxX + boxW, boxY);
-            Vector2 p2 = new(cx - (int)(0.5f * s), cy - 6.5f * s);
-            Vector2 p3 = new(cx - (int)(0.5f * s), cy + 6.5f * s);
-            Vector2 p4 = new(boxX + boxW, boxY + boxH);
-
-            Raylib.DrawTriangle(p1, p2, p3, color);
-            Raylib.DrawTriangle(p1, p3, p4, color);
-
-            if (!muted)
+            if (muted)
             {
-                // Sound Wave 1 (Inner Arc)
-                Vector2 arc1Center = new(cx - 2.0f * s, cy);
-                Raylib.DrawCircleSectorLines(arc1Center, 6.0f * s, -45.0f, 45.0f, 8, color);
+                // speaker_mute.svg exact paths:
+                // 1. Diagonal slash: M3 3L21 21
+                Color slashCol = new(255, 75, 75, 255);
+                Raylib.DrawLineEx(new Vector2(ox + 4.0f * s, oy + 4.0f * s), new Vector2(ox + 20.0f * s, oy + 20.0f * s), strokeW + 0.3f, slashCol);
 
-                // Sound Wave 2 (Outer Arc)
-                Raylib.DrawCircleSectorLines(arc1Center, 9.5f * s, -50.0f, 50.0f, 8, color);
+                // 2. Speaker Top Cone segment: M10.6 5L13 3V8
+                Raylib.DrawLineEx(new Vector2(ox + 10.6f * s, oy + 5.0f * s), new Vector2(ox + 13.0f * s, oy + 3.0f * s), strokeW, color);
+                Raylib.DrawLineEx(new Vector2(ox + 13.0f * s, oy + 3.0f * s), new Vector2(ox + 13.0f * s, oy + 8.0f * s), strokeW, color);
+
+                // 3. Speaker Body Box: M7 16H5C3.89543 16 3 15.1046 3 14V10C3 9.63571 3.09739 9.29417 3.26756 9
+                Raylib.DrawLineEx(new Vector2(ox + 7.0f * s, oy + 16.0f * s), new Vector2(ox + 5.0f * s, oy + 16.0f * s), strokeW, color);
+                Raylib.DrawLineEx(new Vector2(ox + 5.0f * s, oy + 16.0f * s), new Vector2(ox + 3.0f * s, oy + 14.0f * s), strokeW, color);
+                Raylib.DrawLineEx(new Vector2(ox + 3.0f * s, oy + 14.0f * s), new Vector2(ox + 3.0f * s, oy + 10.0f * s), strokeW, color);
+                Raylib.DrawLineEx(new Vector2(ox + 3.0f * s, oy + 10.0f * s), new Vector2(ox + 3.3f * s, oy + 9.0f * s), strokeW, color);
+
+                // 4. Speaker Bottom Cone segment: M13 18V21L10 18.5
+                Raylib.DrawLineEx(new Vector2(ox + 13.0f * s, oy + 18.0f * s), new Vector2(ox + 13.0f * s, oy + 21.0f * s), strokeW, color);
+                Raylib.DrawLineEx(new Vector2(ox + 13.0f * s, oy + 21.0f * s), new Vector2(ox + 10.0f * s, oy + 18.5f * s), strokeW, color);
             }
             else
             {
-                // Mute Cross / Slash Line
-                Vector2 s1 = new(cx + 2.0f * s, cy - 4.5f * s);
-                Vector2 s2 = new(cx + 8.5f * s, cy + 4.5f * s);
-                Vector2 s3 = new(cx + 8.5f * s, cy - 4.5f * s);
-                Vector2 s4 = new(cx + 2.0f * s, cy + 4.5f * s);
+                // speaker_high.svg & speaker_low.svg:
+                // 1. Full Speaker Solid Poly & Outline: M13 3L7 8H5C3.89543 8 3 8.89543 3 10V14C3 15.1046 3.89543 16 5 16H7L13 21V3Z
+                Vector2 b1 = new(ox + 3.2f * s, oy + 10.0f * s);
+                Vector2 b2 = new(ox + 7.0f * s, oy + 8.0f * s);
+                Vector2 b3 = new(ox + 13.0f * s, oy + 3.0f * s);
+                Vector2 b4 = new(ox + 13.0f * s, oy + 21.0f * s);
+                Vector2 b5 = new(ox + 7.0f * s, oy + 16.0f * s);
+                Vector2 b6 = new(ox + 3.2f * s, oy + 14.0f * s);
 
-                Color redAccent = new(255, 82, 82, 255);
-                Raylib.DrawLineEx(s1, s2, 1.8f * s, redAccent);
-                Raylib.DrawLineEx(s3, s4, 1.8f * s, redAccent);
+                // Subtle semi-transparent inner fill
+                Color fillCol = new(color.R, color.G, color.B, (byte)45);
+                Raylib.DrawTriangle(b1, b3, b4, fillCol);
+                Raylib.DrawTriangle(b1, b4, b6, fillCol);
+
+                // Smooth Vector Outer Lines
+                Raylib.DrawLineEx(b3, b4, strokeW, color); // Vertical flare
+                Raylib.DrawLineEx(b4, b5, strokeW, color); // Bottom slant
+                Raylib.DrawLineEx(b5, b6, strokeW, color); // Bottom box
+                Raylib.DrawLineEx(b6, b1, strokeW, color); // Left box
+                Raylib.DrawLineEx(b1, b2, strokeW, color); // Top box
+                Raylib.DrawLineEx(b2, b3, strokeW, color); // Top slant
+
+                // Smooth rounded corners on outer vertices
+                Raylib.DrawCircleV(b1, strokeW * 0.5f, color);
+                Raylib.DrawCircleV(b3, strokeW * 0.5f, color);
+                Raylib.DrawCircleV(b4, strokeW * 0.5f, color);
+                Raylib.DrawCircleV(b6, strokeW * 0.5f, color);
+
+                // 2. Sound Wave 1 (Inner Arc): M16 9C16.5 9.5 17 10.5 17 12C17 13.5 16.5 14.5 16 15
+                Vector2 w1Center = new(ox + 11.5f * s, oy + 12.0f * s);
+                Raylib.DrawCircleSectorLines(w1Center, 5.0f * s, -38.0f, 38.0f, 12, color);
+                Raylib.DrawCircleSectorLines(w1Center, 5.0f * s + strokeW * 0.5f, -38.0f, 38.0f, 12, color);
+
+                // 3. Sound Wave 2 (Outer Arc, for high volume): M19 6C20.5 7.5 21 10 21 12C21 14 20.5 16.5 19 18
+                if (volume > 0.4f)
+                {
+                    Vector2 w2Center = new(ox + 11.5f * s, oy + 12.0f * s);
+                    Raylib.DrawCircleSectorLines(w2Center, 8.8f * s, -45.0f, 45.0f, 16, color);
+                    Raylib.DrawCircleSectorLines(w2Center, 8.8f * s + strokeW * 0.5f, -45.0f, 45.0f, 16, color);
+                }
             }
         }
 

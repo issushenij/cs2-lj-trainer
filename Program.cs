@@ -51,6 +51,11 @@ namespace LJTrainer
             // Load saved settings & persistent player profile
             AppConfig.Load();
             UserProfile.Load();
+
+            CS2ConsoleWatcher.OnConsoleEvent += (evt) =>
+            {
+                _profileModal.OnJumpCaptured(evt);
+            };
             CS2ConsoleWatcher.StartWatching();
 
             // Set process DPI aware and configure Raylib flags
@@ -59,12 +64,16 @@ namespace LJTrainer
             Raylib.SetWindowMinSize(1024, 700);
             Raylib.SetTargetFPS(144);
 
+            // Set custom modern high-res icon ("LJ" bold cyan + "TRAINER" small)
+            TrayManager.SetWindowCustomIcon();
+
             // CRITICAL: Disable Escape key from exiting application (only window [X] or tray exits)
             Raylib.SetExitKey(KeyboardKey.Null);
 
             // Initialize Audio Engine & High-DPI Cyrillic Font
             AudioEngine.Initialize();
             Theme.InitializeFont();
+            SvgIconManager.Initialize();
             ShaderFxManager.Initialize(1380, 860);
 
             // Initialize Windows System Tray Icon
@@ -87,7 +96,7 @@ namespace LJTrainer
                 }
             );
 
-            // Automatic background Cybershoke sync on startup
+            // Automatic background Cybershoke sync and Update check on startup
             System.Threading.Tasks.Task.Run(async () =>
             {
                 await System.Threading.Tasks.Task.Delay(800);
@@ -96,6 +105,9 @@ namespace LJTrainer
                 {
                     CybershokeWebSync.StartAutoSync(sid, null);
                 }
+
+                // Check for new releases on GitHub
+                await UpdateManager.CheckForUpdatesAsync(silent: true);
             });
 
             // Guide display policy on startup (defaults to false)
@@ -304,12 +316,16 @@ namespace LJTrainer
                     {
                         _guideModal.Draw(screenW, screenH);
                     }
+
+                    // 4. In-App Update Modal Prompt
+                    UpdateModal.Draw(screenW, screenH, AppConfig.Instance.UiScale, true);
                 }
 
                 Raylib.EndDrawing();
             }
 
             TrayManager.Dispose();
+            SvgIconManager.Cleanup();
             ShaderFxManager.Cleanup();
             AppConfig.Save();
             UserProfile.Save();
@@ -328,21 +344,15 @@ namespace LJTrainer
             // Top Nav Glass Background
             Theme.DrawGlassPanel(0, 0, screenWidth, navH);
 
-            // 1. Logo with Version Tag
-            int logoFontSize = 15;
-            Theme.DrawText("CS2 LJ LAB", 16, tabY + (tabH - Theme.GetScaledFontSize(logoFontSize)) / 2, logoFontSize, Theme.NeonCyan);
-            int logoW = Theme.MeasureText("CS2 LJ LAB", logoFontSize);
-            
-            string badgeText = "DEMO v1.0.1";
-            int verBadgeW = Theme.MeasureText(badgeText, 8) + 12;
-            int verBadgeH = (int)(18 * scale);
-            int verBadgeX = 16 + logoW + 6;
-            int verBadgeY = tabY + (tabH - verBadgeH) / 2;
-            Raylib.DrawRectangle(verBadgeX, verBadgeY, verBadgeW, verBadgeH, new Color(0, 229, 255, 25));
-            Raylib.DrawRectangleLines(verBadgeX, verBadgeY, verBadgeW, verBadgeH, Theme.NeonCyan);
-            Theme.DrawText(badgeText, verBadgeX + 6, verBadgeY + 3, 8, Theme.NeonCyan);
+            // 1. User Vector Logo (Authentic SVG: Large LJ + TRAINER below in pure white)
+            int logoW = (int)(36 * scale);
+            int logoH = (int)(33 * scale);
+            int logoX = 16;
+            int logoY = tabY - (int)(1 * scale);
 
-            int curX = verBadgeX + verBadgeW + (int)(14 * scale);
+            SvgIconManager.DrawLjLogoSvg(logoX, logoY, logoW, logoH, Color.White);
+
+            int curX = logoX + logoW + (int)(18 * scale);
             int gap = (int)(8 * scale);
 
             // Helper to draw a flowing button on the left
@@ -392,9 +402,9 @@ namespace LJTrainer
             }
             curX += metroW + gap;
 
-            // Sound Speaker Icon Button (Speaker with waves when ON, crossed with slash when MUTED)
+            // Sound Speaker Icon Button (Direct rendering of user's SVG files)
             int soundW = (int)(38 * scale);
-            if (Theme.DrawIconButton(curX, tabY, soundW, tabH, (cx, cy, sz, col) => Theme.DrawSpeakerIcon(cx, cy, sz, col, !cfg.SoundEnabled), null, cfg.SoundEnabled, 12))
+            if (Theme.DrawIconButton(curX, tabY, soundW, tabH, (cx, cy, sz, col) => SvgIconManager.DrawSpeakerSvg(cx, cy, (int)(22 * scale), col, !cfg.SoundEnabled, cfg.MasterVolume), null, cfg.SoundEnabled, 12))
             {
                 cfg.SoundEnabled = !cfg.SoundEnabled;
                 AppConfig.Save();
@@ -404,10 +414,10 @@ namespace LJTrainer
             // 6. Right-aligned Action Items (flowing right to left)
             int rx = screenWidth - (int)(16 * scale);
 
-            // 1. Profile Square Vector Icon Button (Rightmost)
+            // 1. Profile Square Vector Icon Button (Rightmost, with Real Steam Avatar)
             int profBtnSize = tabH; // Pure square button
             rx -= profBtnSize;
-            if (Theme.DrawIconButton(rx, tabY, profBtnSize, tabH, (cx, cy, sz, col) => Theme.DrawProfileIcon(cx, cy, sz, col), null, _profileModal.IsOpen, 12))
+            if (Theme.DrawIconButton(rx, tabY, profBtnSize, tabH, (cx, cy, sz, col) => _profileModal.DrawProfileAvatarIcon(cx, cy, sz, col), null, _profileModal.IsOpen, 12))
             {
                 _profileModal.IsOpen = !_profileModal.IsOpen;
                 if (_profileModal.IsOpen)
@@ -428,6 +438,21 @@ namespace LJTrainer
                 if (Theme.DrawButton(rx, tabY, bw, tabH, text, active, fontSize))
                 {
                     onClick();
+                }
+                rx -= gap;
+            }
+
+            // Update Available Badge Button (Glowing Cyan/Gold on Top Bar)
+            if (UpdateManager.UpdateAvailable)
+            {
+                string upLabel = $"⚡ ОБНОВЛЕНИЕ ({UpdateManager.LatestRelease?.TagName ?? "NEW"})";
+                int upW = Theme.MeasureText(upLabel, 11) + (int)(18 * scale);
+                rx -= upW;
+                Raylib.DrawRectangle(rx, tabY, upW, tabH, new Color(255, 215, 0, 35));
+                Raylib.DrawRectangleLines(rx, tabY, upW, tabH, Theme.NeonGold);
+                if (Theme.DrawButton(rx, tabY, upW, tabH, upLabel, true, 11))
+                {
+                    UpdateManager.ShowUpdatePrompt = true;
                 }
                 rx -= gap;
             }
