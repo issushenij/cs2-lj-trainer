@@ -13,22 +13,35 @@ namespace LJTrainer.UI
         private float _targetScrollY = 0f;
         private string _importStatusMessage = "";
         private bool _importStatusSuccess = false;
+        private float _openAnimProgress = 0.0f;
 
         public void Draw(int screenWidth, int screenHeight)
         {
-            if (!IsOpen) return;
+            if (!IsOpen)
+            {
+                _openAnimProgress = 0.0f;
+                return;
+            }
+
+            // Smooth spring fade & pop-in entrance
+            _openAnimProgress += Raylib.GetFrameTime() * 6.0f;
+            if (_openAnimProgress > 1.0f) _openAnimProgress = 1.0f;
 
             var cfg = AppConfig.Instance;
             float scale = cfg.UiScale;
             Vector2 mouse = Raylib.GetMousePosition();
 
-            // Backdrop dimming overlay
-            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color(0, 0, 0, 220));
+            // Backdrop dimming overlay with smooth fade
+            byte dimAlpha = (byte)(220 * _openAnimProgress);
+            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color((byte)0, (byte)0, (byte)0, dimAlpha));
 
             int modalW = Math.Min((int)(820 * MathF.Min(scale, 1.15f)), screenWidth - 32);
             int modalH = Math.Min((int)(700 * MathF.Min(scale, 1.15f)), screenHeight - 40);
+
+            // Pop-in slide offset
+            int animOffsetY = (int)((1.0f - _openAnimProgress) * 20.0f);
             int modalX = (screenWidth - modalW) / 2;
-            int modalY = (screenHeight - modalH) / 2;
+            int modalY = (screenHeight - modalH) / 2 + animOffsetY;
 
             // Frosted Glass Container
             Theme.DrawGlassPanel(modalX, modalY, modalW, modalH);
@@ -39,7 +52,7 @@ namespace LJTrainer.UI
             Raylib.DrawLine(modalX, modalY + headerH, modalX + modalW, modalY + headerH, Theme.Border);
             Raylib.DrawLine(modalX + 1, modalY + 1, modalX + modalW - 2, modalY + 1, new Color(255, 255, 255, 80));
 
-            Theme.DrawText("⚙ НАСТРОЙКИ ТРЕНАЖЕРА (SETTINGS)", modalX + 18, modalY + (headerH - Theme.GetScaledFontSize(15)) / 2, 15, Theme.NeonCyan);
+            Theme.DrawText("НАСТРОЙКИ ТРЕНАЖЕРА (SETTINGS)", modalX + 18, modalY + (headerH - Theme.GetScaledFontSize(15)) / 2, 15, Theme.NeonCyan);
 
             // Close button [X]
             int closeW = (int)(95 * scale);
@@ -221,13 +234,13 @@ namespace LJTrainer.UI
                 {
                     cfg.Sensitivity = res.Sensitivity;
                     cfg.YawFactor = res.YawFactor;
-                    _importStatusMessage = $"✓ {res.Message}";
+                    _importStatusMessage = $"[OK] {res.Message}";
                     _importStatusSuccess = true;
                     AppConfig.Save();
                 }
                 else
                 {
-                    _importStatusMessage = $"✕ {res.Message}";
+                    _importStatusMessage = $"[ERROR] {res.Message}";
                     _importStatusSuccess = false;
                 }
             }

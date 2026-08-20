@@ -48,6 +48,12 @@ namespace LJTrainer.UI
         private int _graphMetric = 0; // 0 = Distance (Units), 1 = Sync (%), 2 = Pre-Speed (u/s), 3 = Overlap (ms)
         private int _selectedTrajectoryJumpIndex = -2; // -2 = Auto-follow freshest jump, -1 = Average ghost only, 0..N = specific jump
 
+        // Tab transition animation state
+        private float _tabTransitionProgress = 1.0f;
+        private float _tabIndicatorX = 16f;
+        private float _targetTabIndicatorX = 16f;
+        private float _tabIndicatorW = 250f;
+
         private void EnsureAvatarLoaded(string steamId64)
         {
             if (_avatarLoaded) return;
@@ -238,7 +244,7 @@ namespace LJTrainer.UI
             }
 
             // =========================================================================
-            // NAVIGATION SUB-HEADER (TABS BAR)
+            // NAVIGATION SUB-HEADER (TABS BAR WITH SLIDING GLOW INDICATOR)
             // =========================================================================
             int tabsBarY = headerH;
             int tabsBarH = (int)(42 * scale);
@@ -247,12 +253,28 @@ namespace LJTrainer.UI
 
             int tabBtnW = (int)(250 * scale);
             int tabBtnH = (int)(32 * scale);
-            int curTabX = 16;
             int tabBtnY = tabsBarY + (tabsBarH - tabBtnH) / 2;
+
+            // Animate sliding tab indicator
+            int targetTabX = _activeTab switch
+            {
+                1 => 16,
+                2 => 16 + tabBtnW + 8,
+                _ => 16 + (tabBtnW + 8) * 2
+            };
+            _targetTabIndicatorX = targetTabX;
+            _tabIndicatorX += (_targetTabIndicatorX - _tabIndicatorX) * 0.22f; // Smooth spring-like lerp
+            _tabIndicatorW = tabBtnW;
+
+            // Draw glowing sliding pill under active tab
+            Raylib.DrawRectangle((int)_tabIndicatorX, tabBtnY + tabBtnH - 3, (int)_tabIndicatorW, 3, Theme.NeonCyan);
+            Raylib.DrawRectangle((int)_tabIndicatorX, tabBtnY + tabBtnH - 5, (int)_tabIndicatorW, 2, new Color(0, 229, 255, 60));
+
+            int curTabX = 16;
 
             if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "1. РЕКОРДЫ ПРЫЖКОВ (PB)", _activeTab == 1, 11, enabled: !isModalActive))
             {
-                _activeTab = 1;
+                if (_activeTab != 1) { _activeTab = 1; _tabTransitionProgress = 0.0f; }
             }
             curTabX += tabBtnW + 8;
 
@@ -260,13 +282,20 @@ namespace LJTrainer.UI
             string mapsTabTitle = $"2. КАРТЫ KZ ({mCount} ПРОЙДЕНО)";
             if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, mapsTabTitle, _activeTab == 2, 11, enabled: !isModalActive))
             {
-                _activeTab = 2;
+                if (_activeTab != 2) { _activeTab = 2; _tabTransitionProgress = 0.0f; }
             }
             curTabX += tabBtnW + 8;
 
             if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "3. АНАЛИЗ И ПЛАН ТРЕНИРОВОК", _activeTab == 0, 11, enabled: !isModalActive))
             {
-                _activeTab = 0;
+                if (_activeTab != 0) { _activeTab = 0; _tabTransitionProgress = 0.0f; }
+            }
+
+            // Animate tab content entrance
+            if (_tabTransitionProgress < 1.0f)
+            {
+                _tabTransitionProgress += Raylib.GetFrameTime() * 4.5f;
+                if (_tabTransitionProgress > 1.0f) _tabTransitionProgress = 1.0f;
             }
 
             string curStatus = CybershokeWebSync.IsSyncing ? CybershokeWebSync.SyncStatusMessage : _importStatusMsg;
@@ -287,6 +316,10 @@ namespace LJTrainer.UI
             int contentX = 16;
 
             bool inputActive = !isModalActive;
+
+            // Content smooth slide-up offset
+            int animSlideOffsetY = (int)((1.0f - _tabTransitionProgress) * 12.0f);
+            contentY += animSlideOffsetY;
 
             if (_activeTab == 1)
             {
@@ -484,7 +517,7 @@ namespace LJTrainer.UI
                 Theme.DrawText($"•  {rec.TimestampStr}", timeX, ny + 10, 8, Theme.TextDim);
 
                 // Map Pill on the right
-                string mapText = !string.IsNullOrEmpty(rec.MapName) ? $"🗺 {rec.MapName}" : "🗺 kz_longjump";
+                string mapText = !string.IsNullOrEmpty(rec.MapName) ? $"MAP: {rec.MapName}" : "MAP: kz_longjump";
                 int mapW = Theme.MeasureText(mapText, 9) + 16;
                 int mapX = cardX + cardW - mapW - 14;
                 int mapH = (int)(18 * scale);
@@ -494,7 +527,7 @@ namespace LJTrainer.UI
 
                 if (isLatest)
                 {
-                    string latestTag = "⭐ ТЕКУЩИЙ РЕКОРД";
+                    string latestTag = "ТЕКУЩИЙ РЕКОРД";
                     int tagW = Theme.MeasureText(latestTag, 8) + 14;
                     int tagX = mapX - tagW - 8;
                     Raylib.DrawRectangle(tagX, ny + 7, tagW, mapH, new Color(255, 215, 0, 30));
@@ -517,7 +550,7 @@ namespace LJTrainer.UI
                 int deltaY = mainContentY + (int)(27 * scale);
                 if (rec.Delta > 0 && rec.PreviousDistance > 0)
                 {
-                    string deltaText = $"▲ +{rec.Delta:F2}u (было {rec.PreviousDistance:F1}u)";
+                    string deltaText = $"+{rec.Delta:F2}u (было {rec.PreviousDistance:F1}u)";
                     int delBadgeW = Theme.MeasureText(deltaText, 8) + 14;
                     int delBadgeH = (int)(18 * scale);
                     Raylib.DrawRectangle(cardX + 16, deltaY, delBadgeW, delBadgeH, new Color(0, 255, 128, 35));
@@ -526,7 +559,7 @@ namespace LJTrainer.UI
                 }
                 else if (i == history.Count - 1)
                 {
-                    string initText = "🏁 ПЕРВЫЙ РЕКОРД";
+                    string initText = "ПЕРВЫЙ РЕКОРД";
                     int delBadgeW = Theme.MeasureText(initText, 8) + 14;
                     int delBadgeH = (int)(18 * scale);
                     Raylib.DrawRectangle(cardX + 16, deltaY, delBadgeW, delBadgeH, new Color(0, 240, 255, 30));
@@ -692,7 +725,7 @@ namespace LJTrainer.UI
 
                 if (!string.IsNullOrEmpty(rec.HighlightMap))
                 {
-                    string hlMap = $"🗺 {rec.HighlightMap}";
+                    string hlMap = $"MAP: {rec.HighlightMap}";
                     int hlW = Theme.MeasureText(hlMap, 9) + 16;
                     int hlX = cardX + cardW - hlW - 14;
                     int hlY = ny + 10;
@@ -1399,17 +1432,17 @@ namespace LJTrainer.UI
             }
 
             if (dist >= wreckerDist)
-                return ("WRECKER", "🟣 WRECKER", Theme.NeonPurple, new Color(213, 0, 249, 75));
+                return ("WRECKER", "WRECKER", Theme.NeonPurple, new Color(213, 0, 249, 75));
             if (dist >= ownageDist)
-                return ("OWNAGE", "🟡 OWNAGE", Theme.NeonGold, new Color(255, 215, 0, 75));
+                return ("OWNAGE", "OWNAGE", Theme.NeonGold, new Color(255, 215, 0, 75));
             if (dist >= godlikeDist)
-                return ("GODLIKE", "🔴 GODLIKE", Theme.NeonRed, new Color(255, 23, 68, 75));
+                return ("GODLIKE", "GODLIKE", Theme.NeonRed, new Color(255, 23, 68, 75));
             if (dist >= perfectDist)
-                return ("PERFECT", "🟢 PERFECT", Theme.NeonGreen, new Color(0, 230, 118, 45));
+                return ("PERFECT", "PERFECT", Theme.NeonGreen, new Color(0, 230, 118, 45));
             if (dist >= impressiveDist)
-                return ("IMPRESSIVE", "🔵 IMPRESSIVE", Theme.NeonCyan, new Color(0, 229, 255, 35));
+                return ("IMPRESSIVE", "IMPRESSIVE", Theme.NeonCyan, new Color(0, 229, 255, 35));
 
-            return ("NORMAL", "⚪ NORMAL", Theme.TextDim, Color.Blank);
+            return ("NORMAL", "NORMAL", Theme.TextDim, Color.Blank);
         }
 
         private static List<CS2ConsoleEvent> GetJumpHistoryForAnalytics(string normFilter, CybershokeKzProfile cs)
@@ -1632,12 +1665,12 @@ namespace LJTrainer.UI
             // Dynamic Legend at bottom of graph matching current jump type
             string legendStr = normFilter switch
             {
-                "Bunnyhop" => "🟣 Wrecker (295+)   🟡 Ownage (292-294.9)   🔴 Godlike (286-291.9)   🟢 Perfect (280+)",
-                "Multi Bunnyhop" => "🟣 Wrecker (302+)   🟡 Ownage (298-301.9)   🔴 Godlike (292-297.9)   🟢 Perfect (285+)",
-                "Ladder Jump" => "🟣 Wrecker (195+)   🟡 Ownage (190-194.9)   🔴 Godlike (180-189.9)   🟢 Perfect (170+)",
-                "Ladderhop" => "🟣 Wrecker (210+)   🟡 Ownage (200-209.9)   🔴 Godlike (190-199.9)   🟢 Perfect (180+)",
-                "Weird Jump" => "🟣 Wrecker (286+)   🟡 Ownage (284-285.9)   🔴 Godlike (280-283.9)   🟢 Perfect (275+)",
-                _ => "🟣 Wrecker (284+)   🟡 Ownage (280-283.9)   🔴 Godlike (275-279.9)   🟢 Perfect (270+)"
+                "Bunnyhop" => "[Wrecker: 295+]  [Ownage: 292-294.9]  [Godlike: 286-291.9]  [Perfect: 280+]",
+                "Multi Bunnyhop" => "[Wrecker: 302+]  [Ownage: 298-301.9]  [Godlike: 292-297.9]  [Perfect: 285+]",
+                "Ladder Jump" => "[Wrecker: 195+]  [Ownage: 190-194.9]  [Godlike: 180-189.9]  [Perfect: 170+]",
+                "Ladderhop" => "[Wrecker: 210+]  [Ownage: 200-209.9]  [Godlike: 190-199.9]  [Perfect: 180+]",
+                "Weird Jump" => "[Wrecker: 286+]  [Ownage: 284-285.9]  [Godlike: 280-283.9]  [Perfect: 275+]",
+                _ => "[Wrecker: 284+]  [Ownage: 280-283.9]  [Godlike: 275-279.9]  [Perfect: 270+]"
             };
             Theme.DrawText(legendStr, gx + padL, gy + gh - 14, 8, Theme.TextDim);
 
@@ -1935,7 +1968,7 @@ namespace LJTrainer.UI
                         }
                     }
 
-                    // Waypoint markers at strafe start
+                    // Waypoint markers at strafe start (Large, crisp, glowing badges)
                     for (int i = 1; i < pathPoints.Count; i++)
                     {
                         var pt1 = pathPoints[i];
@@ -1945,10 +1978,27 @@ namespace LJTrainer.UI
                             int s1Y = originY - (int)(pt1.Pos.Y * pxPerUnitY);
                             Color segCol = Theme.StrafeColors[pt1.StrafeIndex % Theme.StrafeColors.Length];
 
-                            Raylib.DrawCircle(s1X, s1Y, 5.0f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)120));
-                            Raylib.DrawCircle(s1X, s1Y, 3.2f, segCol);
-                            Raylib.DrawCircle(s1X, s1Y, 1.5f, Theme.TextWhite);
-                            Theme.DrawText($"S{pt1.StrafeIndex + 1}", s1X + (pt1.StrafeIndex % 2 == 0 ? -16 : 6), s1Y - 5, 8, Theme.TextWhite);
+                            // 1. Large glowing point on trajectory
+                            Raylib.DrawCircle(s1X, s1Y, 8.5f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)60));
+                            Raylib.DrawCircle(s1X, s1Y, 6.0f, new Color((byte)segCol.R, (byte)segCol.G, (byte)segCol.B, (byte)180));
+                            Raylib.DrawCircle(s1X, s1Y, 4.0f, segCol);
+                            Raylib.DrawCircle(s1X, s1Y, 2.0f, Theme.TextWhite);
+
+                            // 2. Clear floating Badge Pill for Strafe Number
+                            string sLabel = $"S{pt1.StrafeIndex + 1}";
+                            int labelW = Theme.MeasureText(sLabel, 10) + 10;
+                            int labelH = (int)(18 * scale);
+
+                            bool isLeft = (pt1.StrafeIndex % 2 == 0);
+                            int labelX = isLeft ? (s1X - labelW - 8) : (s1X + 8);
+                            int labelY = s1Y - labelH / 2;
+
+                            // Badge background + border + glow
+                            Raylib.DrawRectangle(labelX, labelY, labelW, labelH, new Color(12, 17, 26, 230));
+                            Raylib.DrawRectangleLines(labelX, labelY, labelW, labelH, segCol);
+                            Raylib.DrawRectangle(labelX, labelY, 3, labelH, segCol);
+
+                            Theme.DrawText(sLabel, labelX + 6, labelY + 2, 10, Theme.TextWhite);
                         }
                     }
 

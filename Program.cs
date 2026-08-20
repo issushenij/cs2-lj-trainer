@@ -55,7 +55,7 @@ namespace LJTrainer
 
             // Set process DPI aware and configure Raylib flags
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
-            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab v1.0.0");
+            Raylib.InitWindow(1380, 860, "CS2 Long Jump Cadence & Sync Lab [DEMO v1.0.1]");
             Raylib.SetWindowMinSize(1024, 700);
             Raylib.SetTargetFPS(144);
 
@@ -65,6 +65,7 @@ namespace LJTrainer
             // Initialize Audio Engine & High-DPI Cyrillic Font
             AudioEngine.Initialize();
             Theme.InitializeFont();
+            ShaderFxManager.Initialize(1380, 860);
 
             // Initialize Windows System Tray Icon
             TrayManager.Initialize(
@@ -256,12 +257,16 @@ namespace LJTrainer
                     }
                 }
 
-                // Render Frame
-                Raylib.BeginDrawing();
-                Raylib.ClearBackground(Theme.BgDark);
-
                 int screenW = Raylib.GetScreenWidth();
                 int screenH = Raylib.GetScreenHeight();
+
+                if (Raylib.IsWindowResized())
+                {
+                    ShaderFxManager.ResizeBuffer(screenW, screenH);
+                }
+
+                Raylib.BeginDrawing();
+                Raylib.ClearBackground(Theme.BgDark);
 
                 if (_profileModal.IsOpen)
                 {
@@ -305,6 +310,7 @@ namespace LJTrainer
             }
 
             TrayManager.Dispose();
+            ShaderFxManager.Cleanup();
             AppConfig.Save();
             UserProfile.Save();
             AudioEngine.Shutdown();
@@ -327,13 +333,14 @@ namespace LJTrainer
             Theme.DrawText("CS2 LJ LAB", 16, tabY + (tabH - Theme.GetScaledFontSize(logoFontSize)) / 2, logoFontSize, Theme.NeonCyan);
             int logoW = Theme.MeasureText("CS2 LJ LAB", logoFontSize);
             
-            int verBadgeW = (int)(48 * scale);
+            string badgeText = "DEMO v1.0.1";
+            int verBadgeW = Theme.MeasureText(badgeText, 8) + 12;
             int verBadgeH = (int)(18 * scale);
             int verBadgeX = 16 + logoW + 6;
             int verBadgeY = tabY + (tabH - verBadgeH) / 2;
             Raylib.DrawRectangle(verBadgeX, verBadgeY, verBadgeW, verBadgeH, new Color(0, 229, 255, 25));
             Raylib.DrawRectangleLines(verBadgeX, verBadgeY, verBadgeW, verBadgeH, Theme.NeonCyan);
-            Theme.DrawText("v1.0.0", verBadgeX + 6, verBadgeY + 3, 8, Theme.NeonCyan);
+            Theme.DrawText(badgeText, verBadgeX + 6, verBadgeY + 3, 8, Theme.NeonCyan);
 
             int curX = verBadgeX + verBadgeW + (int)(14 * scale);
             int gap = (int)(8 * scale);

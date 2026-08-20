@@ -9,21 +9,34 @@ namespace LJTrainer.UI
     {
         public bool IsOpen { get; set; } = true;
         private int _activeTab = 0; // 0 = Как тренироваться, 1 = Словарь понятий LJ
+        private float _openAnimProgress = 0.0f;
 
         public void Draw(int screenWidth, int screenHeight)
         {
-            if (!IsOpen) return;
+            if (!IsOpen)
+            {
+                _openAnimProgress = 0.0f;
+                return;
+            }
+
+            // Smooth spring pop-in entrance
+            _openAnimProgress += Raylib.GetFrameTime() * 6.0f;
+            if (_openAnimProgress > 1.0f) _openAnimProgress = 1.0f;
 
             var cfg = AppConfig.Instance;
             float scale = cfg.UiScale;
 
             int modalW = Math.Min(1180, screenWidth - 24);
             int modalH = Math.Min(740, screenHeight - 30);
-            int modalX = (screenWidth - modalW) / 2;
-            int modalY = (screenHeight - modalH) / 2;
 
-            // Semi-transparent backdrop overlay
-            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color((byte)0, (byte)0, (byte)0, (byte)225));
+            // Pop-in slide offset
+            int animOffsetY = (int)((1.0f - _openAnimProgress) * 20.0f);
+            int modalX = (screenWidth - modalW) / 2;
+            int modalY = (screenHeight - modalH) / 2 + animOffsetY;
+
+            // Semi-transparent backdrop overlay with smooth fade
+            byte dimAlpha = (byte)(225 * _openAnimProgress);
+            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color((byte)0, (byte)0, (byte)0, dimAlpha));
 
             Vector2 mouse = Raylib.GetMousePosition();
             if (Raylib.IsMouseButtonPressed(MouseButton.Left))
@@ -75,7 +88,7 @@ namespace LJTrainer.UI
             // Don't show again toggle checkbox button
             int checkW = (int)(250 * scale);
             int checkH = (int)(32 * scale);
-            string checkLabel = cfg.ShowWelcomeGuideOnStartup ? "□ Больше не показывать" : "☑ Больше не показывать";
+            string checkLabel = cfg.ShowWelcomeGuideOnStartup ? "[ ] Больше не показывать" : "[x] Больше не показывать";
             Color checkCol = cfg.ShowWelcomeGuideOnStartup ? Theme.TextDim : Theme.NeonCyan;
             if (Theme.DrawButton(modalX + 18, bottomY + (bottomH - checkH) / 2, checkW, checkH, checkLabel, !cfg.ShowWelcomeGuideOnStartup, 11))
             {

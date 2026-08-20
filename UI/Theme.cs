@@ -9,14 +9,20 @@ namespace LJTrainer.UI
 {
     public static class Theme
     {
-        public static Font CustomFont { get; private set; }
+        public static Font FontSmall { get; private set; }   // 16-22px
+        public static Font FontMedium { get; private set; }  // 24-34px
+        public static Font FontLarge { get; private set; }   // 36-54px
+        public static Font FontHuge { get; private set; }    // 56-80px
         public static bool HasCustomFont { get; private set; } = false;
 
         public static void InitializeFont()
         {
             try
             {
-                string fontPath = @"C:\Windows\Fonts\segoeui.ttf";
+                // Prefer clean UI fonts with high legibility and strong letterforms (Segoe UI SemiBold / Regular / Arial)
+                string fontPath = @"C:\Windows\Fonts\segoeuib.ttf";
+                if (!File.Exists(fontPath)) fontPath = @"C:\Windows\Fonts\segoeui.ttf";
+                if (!File.Exists(fontPath)) fontPath = @"C:\Windows\Fonts\arialbd.ttf";
                 if (!File.Exists(fontPath)) fontPath = @"C:\Windows\Fonts\arial.ttf";
 
                 if (File.Exists(fontPath))
@@ -35,18 +41,29 @@ namespace LJTrainer.UI
                     // 4. General Punctuation (0x2000..0x206F) - em-dash, en-dash, bullet, quotes
                     for (int i = 0x2000; i <= 0x206F; i++) cpList.Add(i);
 
-                    // 5. Arrows & Math Operators (0x2190..0x22FF) - →, ←, ↔, ≈, ≠, ≤, ≥, ≡
+                    // 5. Arrows & Math Operators (0x2190..0x22FF) - →, ←, ↔, ≈, ≠, ≤, ≥, ≡, ▲, ▼
                     for (int i = 0x2190; i <= 0x22FF; i++) cpList.Add(i);
 
-                    // 6. Geometric Shapes & Misc Symbols (0x2500..0x27BF) - ▶, ⏸, ■, ✓, ✕, ⚙
+                    // 6. Geometric Shapes & Misc Symbols (0x2500..0x27BF) - ▶, ⏸, ■, ✓, ✕, ⚙, ⭐, 🗺, 🏁
                     for (int i = 0x2500; i <= 0x27BF; i++) cpList.Add(i);
 
                     int[] codepoints = new int[cpList.Count];
                     cpList.CopyTo(codepoints);
                     Array.Sort(codepoints);
 
-                    CustomFont = Raylib.LoadFontEx(fontPath, 64, codepoints, codepoints.Length);
-                    Raylib.SetTextureFilter(CustomFont.Texture, TextureFilter.Bilinear);
+                    // Multi-tier rasterization so text is never downscaled or blurred
+                    FontSmall = Raylib.LoadFontEx(fontPath, 20, codepoints, codepoints.Length);
+                    Raylib.SetTextureFilter(FontSmall.Texture, TextureFilter.Bilinear);
+
+                    FontMedium = Raylib.LoadFontEx(fontPath, 32, codepoints, codepoints.Length);
+                    Raylib.SetTextureFilter(FontMedium.Texture, TextureFilter.Bilinear);
+
+                    FontLarge = Raylib.LoadFontEx(fontPath, 48, codepoints, codepoints.Length);
+                    Raylib.SetTextureFilter(FontLarge.Texture, TextureFilter.Bilinear);
+
+                    FontHuge = Raylib.LoadFontEx(fontPath, 72, codepoints, codepoints.Length);
+                    Raylib.SetTextureFilter(FontHuge.Texture, TextureFilter.Bilinear);
+
                     HasCustomFont = true;
                 }
             }
@@ -54,6 +71,14 @@ namespace LJTrainer.UI
             {
                 HasCustomFont = false;
             }
+        }
+
+        private static Font GetBestFont(int scaledSize)
+        {
+            if (scaledSize <= 22) return FontSmall;
+            if (scaledSize <= 36) return FontMedium;
+            if (scaledSize <= 56) return FontLarge;
+            return FontHuge;
         }
 
         public static int GetScaledFontSize(int baseSize)
@@ -68,7 +93,8 @@ namespace LJTrainer.UI
             int scaled = GetScaledFontSize(fontSize);
             if (HasCustomFont)
             {
-                Raylib.DrawTextEx(CustomFont, text, new Vector2(x, y), scaled, 1.0f, color);
+                Font f = GetBestFont(scaled);
+                Raylib.DrawTextEx(f, text, new Vector2(x, y), scaled, 0.0f, color);
             }
             else
             {
@@ -82,7 +108,8 @@ namespace LJTrainer.UI
             int scaled = GetScaledFontSize(fontSize);
             if (HasCustomFont)
             {
-                return (int)Raylib.MeasureTextEx(CustomFont, text, scaled, 1.0f).X;
+                Font f = GetBestFont(scaled);
+                return (int)Math.Ceiling(Raylib.MeasureTextEx(f, text, scaled, 0.0f).X);
             }
             return Raylib.MeasureText(text, scaled);
         }
