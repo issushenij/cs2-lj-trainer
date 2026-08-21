@@ -97,128 +97,31 @@ namespace LJTrainer.Core
                 Instance.Cybershoke.ReconstructRecentJumps();
                 CS2ConsoleWatcher.InitializeFromProfile(Instance.Cybershoke);
 
-                if (Instance.Cybershoke.CompletedMaps == null || Instance.Cybershoke.CompletedMaps.Count == 0)
+                if (Instance.Cybershoke.RankHistory == null)
                 {
-                    string[] possibleDumps = new[]
-                    {
-                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cybershoke_kz_dump.txt"),
-                        Path.Combine(Directory.GetCurrentDirectory(), "cybershoke_kz_dump.txt"),
-                        @"c:\Users\matas\Downloads\lj\cybershoke_kz_dump.txt"
-                    };
-
-                    foreach (var dp in possibleDumps)
-                    {
-                        if (File.Exists(dp))
-                        {
-                            try
-                            {
-                                string raw = File.ReadAllText(dp);
-                                try { raw = JsonSerializer.Deserialize<string>(raw) ?? raw; } catch { }
-                                Instance.Cybershoke.ImportFromText(raw);
-                                break;
-                            }
-                            catch { }
-                        }
-                    }
+                    Instance.Cybershoke.RankHistory = new List<RankHistoryRecord>();
                 }
-
-                if (Instance.Cybershoke.RankHistory != null)
+                else
                 {
-                    // Purge any old mock records permanently
+                    // Purge any legacy mock records permanently
                     Instance.Cybershoke.RankHistory.RemoveAll(r => 
                         r.HighlightMap.Contains("сезон") || 
                         r.HighlightMap.Contains("Старт") ||
                         r.RankPosition == 950 ||
                         r.RankPosition == 810 ||
                         r.RankPosition == 720 ||
-                        r.RankPosition == 685);
-                }
-
-                if (Instance.Cybershoke.RankHistory == null || Instance.Cybershoke.RankHistory.Count == 0)
-                {
-                    Instance.Cybershoke.RankHistory = new List<RankHistoryRecord>
-                    {
-                        new()
-                        {
-                            TimestampStr = DateTime.Now.ToString("dd.MM.yyyy HH:mm"),
-                            RankPosition = Instance.Cybershoke.KzPosition > 0 ? Instance.Cybershoke.KzPosition : 643,
-                            Points = Instance.Cybershoke.KzPoints > 0 ? Instance.Cybershoke.KzPoints : 8370,
-                            MapsCompleted = Instance.Cybershoke.CompletedMaps.Count > 0 ? Instance.Cybershoke.CompletedMaps.Count : 86,
-                            HighlightMap = "Текущий рейтинг Cybershoke",
-                            RankDelta = 0
-                        }
-                    };
+                        r.RankPosition == 685 ||
+                        r.RankPosition == 643);
                 }
 
                 if (Instance.Cybershoke.PBHistory == null)
                 {
                     Instance.Cybershoke.PBHistory = new List<PBHistoryRecord>();
                 }
-                if (Instance.Cybershoke.PBHistory.Count == 0)
+                else
                 {
-                    Instance.Cybershoke.PBHistory = new List<PBHistoryRecord>
-                    {
-                        new()
-                        {
-                            TimestampStr = DateTime.Now.ToString("dd.MM.yyyy HH:mm"),
-                            JumpType = "Long Jump",
-                            Distance = 275.01f,
-                            PreviousDistance = 272.01f,
-                            Strafes = 8,
-                            Sync = 52.3f,
-                            PreSpeed = 276.0f,
-                            MaxSpeed = 339.5f,
-                            Deviation = 0.17f,
-                            MapName = "kz_gfy_final"
-                        },
-                        new()
-                        {
-                            TimestampStr = DateTime.Now.AddMinutes(-4).ToString("dd.MM.yyyy HH:mm"),
-                            JumpType = "Long Jump",
-                            Distance = 272.01f,
-                            PreviousDistance = 269.50f,
-                            Strafes = 8,
-                            Sync = 45.3f,
-                            PreSpeed = 276.0f,
-                            MaxSpeed = 332.7f,
-                            Deviation = 7.62f,
-                            MapName = "kz_gfy_final"
-                        },
-                        new()
-                        {
-                            TimestampStr = DateTime.Now.AddMinutes(-14).ToString("dd.MM.yyyy HH:mm"),
-                            JumpType = "Long Jump",
-                            Distance = 269.50f,
-                            PreviousDistance = 265.78f,
-                            Strafes = 8,
-                            Sync = 52.5f,
-                            PreSpeed = 272.1f,
-                            MaxSpeed = 335.3f,
-                            Deviation = -11.51f,
-                            MapName = "kz_gfy_final"
-                        },
-                        new()
-                        {
-                            TimestampStr = DateTime.Now.AddMinutes(-30).ToString("dd.MM.yyyy HH:mm"),
-                            JumpType = "Long Jump",
-                            Distance = 265.78f,
-                            PreviousDistance = 0f,
-                            Strafes = 8,
-                            Sync = 67.2f,
-                            PreSpeed = 276.0f,
-                            MaxSpeed = 348.7f,
-                            Deviation = 51.40f,
-                            MapName = "kz_gfy_final"
-                        }
-                    };
-                }
-
-                // Ensure active LJ PB has date and previous record
-                var ljPb = Instance.Cybershoke.GetOrCreate("Long Jump");
-                if (ljPb.PBDist >= 275.0f && ljPb.PrevPBDist <= 0)
-                {
-                    ljPb.PrevPBDist = 272.01f;
-                    ljPb.PBDate = DateTime.Now;
+                    // Purge legacy mock jumps
+                    Instance.Cybershoke.PBHistory.RemoveAll(j => j.MapName == "kz_gfy_final");
                 }
             }
             catch { }

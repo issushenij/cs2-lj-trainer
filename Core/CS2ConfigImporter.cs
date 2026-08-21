@@ -155,6 +155,51 @@ namespace LJTrainer.Core
             };
         }
 
+        public static string SanitizeNick(string? nick)
+        {
+            if (string.IsNullOrWhiteSpace(nick)) return "Player";
+            string s = nick.Trim();
+
+            // Unescape any escaped unicode \u0410...
+            try
+            {
+                if (s.Contains(@"\u"))
+                {
+                    s = Regex.Unescape(s);
+                }
+            }
+            catch { }
+
+            // Detect and fix UTF-8 decoded as ISO-8859-1 / Windows-1252 (Mojibake starting with Ð / Ñ / â)
+            if (s.Contains("Ð") || s.Contains("Ñ") || s.Contains("â") || s.Contains("ã") || s.Contains("Ã"))
+            {
+                try
+                {
+                    byte[] bytes = System.Text.Encoding.GetEncoding("ISO-8859-1").GetBytes(s);
+                    string fixedStr = System.Text.Encoding.UTF8.GetString(bytes);
+                    if (!string.IsNullOrWhiteSpace(fixedStr) && !fixedStr.Contains("?") && !fixedStr.Contains(""))
+                    {
+                        s = fixedStr;
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    byte[] bytes = System.Text.Encoding.GetEncoding(1252).GetBytes(s);
+                    string fixedStr = System.Text.Encoding.UTF8.GetString(bytes);
+                    if (!string.IsNullOrWhiteSpace(fixedStr) && !fixedStr.Contains("?") && !fixedStr.Contains(""))
+                    {
+                        s = fixedStr;
+                    }
+                }
+                catch { }
+            }
+
+            s = Regex.Replace(s, @"[\x00-\x1F\x7F]", "");
+            return string.IsNullOrWhiteSpace(s) ? "Player" : s;
+        }
+
         public static string? DetectLocalSteamPersonaName()
         {
             var steamRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -170,7 +215,7 @@ namespace LJTrainer.Core
                     }
                     if (key?.GetValue("LastGameNameUsed") is string lastGameName && !string.IsNullOrWhiteSpace(lastGameName))
                     {
-                        return lastGameName.Trim();
+                        return SanitizeNick(lastGameName);
                     }
                 }
                 catch { }
@@ -192,7 +237,9 @@ namespace LJTrainer.Core
                 {
                     try
                     {
-                        string content = File.ReadAllText(loginUsersPath);
+                        byte[] bytes = File.ReadAllBytes(loginUsersPath);
+                        string content = System.Text.Encoding.UTF8.GetString(bytes);
+
                         var matches = Regex.Matches(content, @"""(765611\d+)""\s*\{([^}]+)\}", RegexOptions.Singleline);
                         
                         string? mostRecentName = null;
@@ -204,7 +251,7 @@ namespace LJTrainer.Core
                             var pMatch = Regex.Match(block, @"""PersonaName""\s*""([^""]+)""", RegexOptions.IgnoreCase);
                             if (pMatch.Success && !string.IsNullOrWhiteSpace(pMatch.Groups[1].Value))
                             {
-                                string name = pMatch.Groups[1].Value.Trim();
+                                string name = SanitizeNick(pMatch.Groups[1].Value);
                                 if (firstName == null) firstName = name;
 
                                 if (block.Contains("\"MostRecent\"\t\t\"1\"") || block.Contains("\"MostRecent\" \"1\"") ||

@@ -342,7 +342,7 @@ namespace LJTrainer.UI
             }
             curTabX += tabBtnW + tabGap;
 
-            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "[3: АНАЛИТИКА]", _activeTab == 0, 10, enabled: !isModalActive))
+            if (Theme.DrawButton(curTabX, tabBtnY, tabBtnW, tabBtnH, "[3: ANALYTICS]", _activeTab == 0, 10, enabled: !isModalActive))
             {
                 if (_activeTab != 0) { _activeTab = 0; _tabTransitionProgress = 0.0f; }
             }
@@ -2205,9 +2205,9 @@ namespace LJTrainer.UI
             Raylib.DrawRectangle(tx, ty, tw, headerH, Theme.BgPanelHeader);
             Raylib.DrawLine(tx, ty + headerH, tx + tw, ty + headerH, Theme.Border);
 
-            Theme.DrawText("2D ТРАЕКТОРИЯ ПОЛЁТА", tx + 12, ty + (headerH - Theme.GetScaledFontSize(10)) / 2, 10, Theme.NeonGold);
+            Theme.DrawText("2D FLIGHT TRAJECTORY", tx + 12, ty + (headerH - Theme.GetScaledFontSize(10)) / 2, 10, Theme.NeonGold);
 
-            // 1. Selector buttons (ПОСЛЕДНИЙ ПРЫЖОК, РЕКОРД (PB), СРЕДНИЙ ТРЕК, ЛОГ)
+            // 1. Selector buttons (LATEST, PB, AVERAGE, JUMP LOG)
             int selBtnH = (int)(22 * scale);
             int lastIdx = jumps.Count - 1;
 
@@ -2267,9 +2267,9 @@ namespace LJTrainer.UI
             int maxBtnBarW = tw - (int)(180 * scale);
             int dynamicBtnW = Math.Clamp((maxBtnBarW - (btnCount - 1) * 4) / btnCount, 60, (int)(115 * scale));
 
-            // [ЛОГ ПРЫЖКА]
+            // [JUMP LOG]
             curBtnRight -= dynamicBtnW;
-            if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, "ЛОГ ПРЫЖКА", false, 8, enabled: inputActive && jumps.Count > 0))
+            if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, "JUMP LOG", false, 8, enabled: inputActive && jumps.Count > 0))
             {
                 int curIdx = _selectedTrajectoryJumpIndex;
                 if (curIdx == -2 || curIdx < 0 || curIdx >= jumps.Count) curIdx = lastIdx;
@@ -2280,21 +2280,21 @@ namespace LJTrainer.UI
                     _selectedLogTitle = $"{j.JumpType.ToUpper()} — {j.Distance:F2}u";
                     _selectedLogContent = !string.IsNullOrEmpty(j.RawLine)
                         ? j.RawLine
-                        : $"[CS2 Console Watcher] {j.Distance:F4} units | {j.Strafes} str | {j.Sync:F1}% sync | {j.PreSpeed:F1} pre | {j.MaxSpeed:F1} max\nКарта: {j.MapName}\nОтклонение: {j.Deviation:F2} | Airpath: {j.Airpath:F3}\nOverlap: {j.AvgOverlap:F1}ms | Bad Angles: {j.AvgBadAngles:F1}%";
+                        : $"[CS2 Console Watcher] {j.Distance:F4} units | {j.Strafes} str | {j.Sync:F1}% sync | {j.PreSpeed:F1} pre | {j.MaxSpeed:F1} max\nMap: {j.MapName}\nDeviation: {j.Deviation:F2} | Airpath: {j.Airpath:F3}\nOverlap: {j.AvgOverlap:F1}ms | Bad Angles: {j.AvgBadAngles:F1}%";
                     _selectedLogBreakdown = j.StrafeBreakdown;
                 }
             }
             curBtnRight -= 4;
 
-            // [СРЕДНИЙ ТРЕК]
+            // [AVERAGE]
             curBtnRight -= dynamicBtnW;
-            if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, "СРЕДНИЙ", _selectedTrajectoryJumpIndex == -1, 8, enabled: inputActive))
+            if (Theme.DrawButton(curBtnRight, ty + (headerH - selBtnH) / 2, dynamicBtnW, selBtnH, "AVERAGE", _selectedTrajectoryJumpIndex == -1, 8, enabled: inputActive))
             {
                 _selectedTrajectoryJumpIndex = -1;
             }
             curBtnRight -= 4;
 
-            // [РЕКОРД (PB)]
+            // [PB]
             if (absolutePbJump != null)
             {
                 curBtnRight -= dynamicBtnW;

@@ -45,7 +45,7 @@ namespace LJTrainer.Core
                 }
             }
             catch { }
-            return "v1.1.4";
+            return "v1.1.5";
         }
 
         public static bool IsChecking { get; private set; } = false;
@@ -237,81 +237,42 @@ namespace LJTrainer.Core
                 int currentPid = Process.GetCurrentProcess().Id;
 
                 // Create self-contained updater script in temp directory
-                string updaterScriptPath = Path.Combine(tempDir, "apply_update.cmd");
+                string updaterPsPath = Path.Combine(tempDir, "apply_update.ps1");
+                string psScript = $@"
+$pidToWait = {currentPid}
+$targetExe = '{currentExe.Replace("'", "''")}'
+$sourceExe = '{downloadPath.Replace("'", "''")}'
 
-                string updaterCommands;
-                if (downloadPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Extract zip to temp staging folder first
-                    string extractedDir = Path.Combine(tempDir, "extracted");
-                    Directory.CreateDirectory(extractedDir);
-                    ZipFile.ExtractToDirectory(downloadPath, extractedDir, true);
+try {{
+    $p = Get-Process -Id $pidToWait -ErrorAction SilentlyContinue
+    if ($p) {{
+        $p.WaitForExit(8000)
+    }}
+}} catch {{}}
 
-                    // If zip contained a nested folder, locate the actual binaries
-                    string sourceFilesDir = extractedDir;
-                    var subDirs = Directory.GetDirectories(extractedDir);
-                    if (subDirs.Length == 1 && File.Exists(Path.Combine(subDirs[0], "LJTrainer.exe")))
-                    {
-                        sourceFilesDir = subDirs[0];
-                    }
+Start-Sleep -Milliseconds 600
 
-                    // Windows Batch Script: Wait for process to exit, copy files (preserving user_profile.json!), restart app
-                    updaterCommands = $@"@echo off
-chcp 65001 >nul
-echo Обновление CS2 Long Jump Trainer...
-timeout /t 1 /nobreak >nul
+$copied = $false
+for ($i = 0; $i -lt 10; $i++) {{
+    try {{
+        Copy-Item -Path $sourceExe -Destination $targetExe -Force -ErrorAction Stop
+        $copied = $true
+        break
+    }} catch {{
+        Start-Sleep -Milliseconds 500
+    }}
+}}
 
-:wait_pid
-tasklist /FI ""PID eq {currentPid}"" 2>NUL | find /I /N ""LJTrainer"" >NUL
-if ""%ERRORLEVEL%""==""0"" (
-    timeout /t 1 /nobreak >nul
-    goto wait_pid
-)
-
-timeout /t 1 /nobreak >nul
-
-echo Копирование новых файлов...
-xcopy ""{sourceFilesDir}\*"" ""{appDir}"" /E /H /Y /Q /EXCLUDE:{tempDir}\exclude.txt
-
-echo Перезапуск приложения...
-start """" ""{currentExe}""
-exit
+if ($copied) {{
+    Start-Process -FilePath $targetExe -WorkingDirectory (Split-Path -Path $targetExe -Parent)
+}}
 ";
-                    // Exclude user_profile.json and app_config.json so user data is NEVER overwritten!
-                    File.WriteAllText(Path.Combine(tempDir, "exclude.txt"), "user_profile.json\napp_config.json\n");
-                }
-                else
-                {
-                    // Single EXE update
-                    updaterCommands = $@"@echo off
-chcp 65001 >nul
-echo Обновление CS2 Long Jump Trainer...
-timeout /t 1 /nobreak >nul
-
-:wait_pid
-tasklist /FI ""PID eq {currentPid}"" 2>NUL | find /I /N ""LJTrainer"" >NUL
-if ""%ERRORLEVEL%""==""0"" (
-    timeout /t 1 /nobreak >nul
-    goto wait_pid
-)
-
-timeout /t 1 /nobreak >nul
-
-echo Замена исполняемого файла...
-copy /Y ""{downloadPath}"" ""{currentExe}""
-
-echo Перезапуск приложения...
-start """" ""{currentExe}""
-exit
-";
-                }
-
-                File.WriteAllText(updaterScriptPath, updaterCommands);
+                File.WriteAllText(updaterPsPath, psScript, System.Text.Encoding.UTF8);
 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c \"{updaterScriptPath}\"",
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{updaterPsPath}\"",
                     UseShellExecute = true,
                     CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden

@@ -363,7 +363,28 @@ namespace LJTrainer.UI
             int curY = y;
             int btnH = (int)(30 * scale);
 
-            Theme.DrawText("// 4. UI INTERFACE SCALE & VISUALS:", x, curY, 11, Theme.NeonGold);
+            Theme.DrawText("// 4. COLOR THEMES & PALETTES:", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
+
+            ColorTheme[] themes = { ColorTheme.CyberCLI, ColorTheme.AmberCRT, ColorTheme.PhosphorMatrix, ColorTheme.OLEDMonochrome };
+            string[] themeNames = { "CYAN NEON", "AMBER CRT", "MATRIX GREEN", "OLED MONO" };
+            int tBtnW = (w - (themes.Length - 1) * 8) / themes.Length;
+
+            for (int i = 0; i < themes.Length; i++)
+            {
+                var th = themes[i];
+                bool active = (cfg.Theme == th);
+                int bx = x + i * (tBtnW + 8);
+                if (Theme.DrawButton(bx, curY, tBtnW, btnH, themeNames[i], active, 10))
+                {
+                    cfg.Theme = th;
+                    AppConfig.Save();
+                }
+            }
+
+            curY += btnH + (int)(12 * scale);
+
+            Theme.DrawText("// UI INTERFACE SCALE:", x, curY, 11, Theme.NeonGold);
             curY += (int)(22 * scale);
 
             float[] scales = { 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.5f };
@@ -416,7 +437,7 @@ namespace LJTrainer.UI
             Theme.DrawText("// 5. STEAM & CYBERSHOKE LIVE SYNC:", x, curY, 11, Theme.NeonGold);
             curY += (int)(22 * scale);
 
-            string sidText = !string.IsNullOrEmpty(cs.SteamId64) ? $"STEAM_ID: {cs.SteamId64}" : "STEAM: [ NOT LINKED ]";
+            string sidText = !string.IsNullOrEmpty(cs.SteamId64) ? $"STEAM_ID: {cs.SteamId64} [ LINKED ]" : "STEAM: [ NOT LINKED ]";
             Theme.DrawTechnicalBox(x, curY, w, btnH, null, Theme.Border, Theme.BgDark, false);
             Theme.DrawText(sidText, x + 14, curY + (btnH - Theme.GetScaledFontSize(11)) / 2, 11, !string.IsNullOrEmpty(cs.SteamId64) ? Theme.NeonGreen : Theme.NeonOrange);
 
@@ -431,6 +452,23 @@ namespace LJTrainer.UI
                     _importStatusSuccess = ok;
                 });
             }
+
+            curY += btnH + (int)(10 * scale);
+
+            // CS2 Console Watcher Status
+            Theme.DrawText("// CS2 CONSOLE WATCHER (-condebug):", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
+
+            string logStatus = !string.IsNullOrEmpty(CS2ConsoleWatcher.ActiveLogPath) && File.Exists(CS2ConsoleWatcher.ActiveLogPath)
+                ? $"LOG: {Path.GetFileName(CS2ConsoleWatcher.ActiveLogPath)} [ ACTIVE ]"
+                : "LOG: [ НЕ НАЙДЕН — ДОБАВЬТЕ -condebug В CS2 ]";
+
+            Color logCol = (!string.IsNullOrEmpty(CS2ConsoleWatcher.ActiveLogPath) && File.Exists(CS2ConsoleWatcher.ActiveLogPath))
+                ? Theme.NeonGreen 
+                : Theme.NeonOrange;
+
+            Theme.DrawTechnicalBox(x, curY, w, btnH, null, Theme.Border, Theme.BgDark, false);
+            Theme.DrawText(logStatus, x + 14, curY + (btnH - Theme.GetScaledFontSize(10)) / 2, 10, logCol);
 
             if (!string.IsNullOrEmpty(_importStatusMessage))
             {

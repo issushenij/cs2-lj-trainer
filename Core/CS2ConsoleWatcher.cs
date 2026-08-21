@@ -112,9 +112,9 @@ namespace LJTrainer.Core
             }
         }
 
-        // "issushenij jumped 269.2057 units (Block: 260) with a Long Jump" or "issushenij jumped 269.2057 units with a Long Jump"
+        // "Player jumped 269.2057 units (Block: 260) with a Long Jump" (Supports Cyrillic, Chinese, Kanji, Special Chars)
         private static readonly Regex JumpedPattern = new(
-            @"^([a-zA-Z0-9_\-\.\s\[\]{}()]+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units(?:\s*\(?(?:Block|Блок):\s*([0-9]+(?:\.[0-9]+)?)\)?)?\s+with\s+a\s+([\w\s\-]+)",
+            @"^(.+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units(?:\s*\(?(?:Block|Блок):\s*([0-9]+(?:\.[0-9]+)?)\)?)?\s+with\s+a\s+([\p{L}\w\s\-]+)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // "CKZ | 238 Block | 8 Strafes | 55.56% AvgSync | 275.38 Pre | 344.17 Max | 30.30% AvgBadAngles | 0.00% AvgOverlap | 14.14% AvgDeadAir | JumpDirection: Forwards"
@@ -124,14 +124,13 @@ namespace LJTrainer.Core
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Cybershoke Line 3: "51.40 Deviation | 1.024 Airpath | 53.37% AvgGainEff | 0.00 AvgLoss | 33.83° AvgWidth | 0.00 Offset | 0.00/0.00 Crouched | 55.83 Height | ✓ W"
-        // "-11.51 Deviation | 1.016 Airpath | 43.26% AvgGainEff ..."
         private static readonly Regex CkzDetailsPattern = new(
-            @"(-?[0-9.]+)\s*Deviation\s*\|\s*([0-9.]+)\s*Airpath(?:\s*\|\s*([0-9.]+)%\s*AvgGainEff)?(?:\s*\|\s*(-?[0-9.]+)\s*AvgLoss)?(?:\s*\|\s*([0-9.]+)°?\s*AvgWidth)?(?:\s*\|\s*([0-9.]+)\s*Offset)?(?:\s*\|\s*([0-9./]+)\s*Crouched)?(?:\s*\|\s*([0-9.]+)\s*Height)?",
+            @"(-?[0-9.]+)\s*Deviation\s*\|\s*([0-9.]+)\s*Airpath(?:\s*\|\s*([0-9.]+)%\s*AvgGainEff)?(?:\s*\|\s*(-?[0-9.]+)\s*AvgLoss)?(?:\s*\|\s*([0-9.]+)[°\u00B0\s]*AvgWidth)?(?:\s*\|\s*([0-9.]+)\s*Offset)?(?:\s*\|\s*([0-9./]+)\s*Crouched)?(?:\s*\|\s*([0-9.]+)\s*Height)?",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Per-strafe breakdown row: "1.     79.98%     +18.75     -0.00     294.72     16.10%      20.02%        0.00%       0.00%       73.08°      1.17        70.45%      -0.24 | -0.01 | -0.50"
         private static readonly Regex StrafeRowPattern = new(
-            @"^\s*(\d+)\.\s+([0-9.]+)%\s+([+\-0-9.]+)\s+([+\-0-9.]+)\s+([0-9.]+)\s+([0-9.]+)%\s+([0-9.]+)%\s+([0-9.]+)%\s+([0-9.]+)%\s+([0-9.]+)°?",
+            @"^\s*(\d+)\.\s+([0-9.]+)%\s+([+\-0-9.]+)\s+([+\-0-9.]+)\s+([0-9.]+)\s+([0-9.]+)%\s+([0-9.]+)%\s+([0-9.]+)%\s+([0-9.]+)%[°\u00B0\s0-9.]*",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // Key / Mouse Sequences
@@ -598,8 +597,8 @@ namespace LJTrainer.Core
             if (string.IsNullOrWhiteSpace(jumpNick)) return true;
             if (string.IsNullOrWhiteSpace(myNick) || myNick == "CS2_Player" || myNick == "Player") return true;
 
-            string cleanJump = Regex.Replace(jumpNick, @"^\[.*?\]|\{.*?\}|\(.*?\)", "").Trim();
-            string cleanMy = Regex.Replace(myNick, @"^\[.*?\]|\{.*?\}|\(.*?\)", "").Trim();
+            string cleanJump = CS2ConfigImporter.SanitizeNick(Regex.Replace(jumpNick, @"^\[.*?\]|\{.*?\}|\(.*?\)", "").Trim());
+            string cleanMy = CS2ConfigImporter.SanitizeNick(Regex.Replace(myNick, @"^\[.*?\]|\{.*?\}|\(.*?\)", "").Trim());
 
             if (string.Equals(cleanJump, cleanMy, StringComparison.OrdinalIgnoreCase)) return true;
             if (cleanJump.IndexOf(cleanMy, StringComparison.OrdinalIgnoreCase) >= 0 || cleanMy.IndexOf(cleanJump, StringComparison.OrdinalIgnoreCase) >= 0) return true;
