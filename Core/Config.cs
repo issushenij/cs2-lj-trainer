@@ -98,6 +98,8 @@ namespace LJTrainer.Core
         public bool ShowWelcomeGuideOnStartup { get; set; } = false;
         public bool MinimizeToTrayOnClose { get; set; } = true; // Minimize to system tray on [X] instead of closing
         public bool AutoCheckUpdates { get; set; } = true; // Automatically check for updates on startup
+        public string CustomConsoleLogPath { get; set; } = "";
+        public bool CaptureAllConsoleJumps { get; set; } = true; // Capture all JumpStats jumps printed to local console without strict nick filtering
 
         // Sound Settings
         public float MasterVolume { get; set; } = 0.75f;

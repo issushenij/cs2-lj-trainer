@@ -114,7 +114,7 @@ namespace LJTrainer.Core
 
         // "Player jumped 269.2057 units (Block: 260) with a Long Jump" (Supports Cyrillic, Chinese, Kanji, Special Chars)
         private static readonly Regex JumpedPattern = new(
-            @"^(.+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units(?:\s*\(?(?:Block|Блок):\s*([0-9]+(?:\.[0-9]+)?)\)?)?\s+with\s+a\s+([\p{L}\w\s\-]+)",
+            @"^(?:\[.*?\]\s*|\{.*?\}\s*|\(.*?\)\s*)?(.+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units(?:\s*\(?(?:Block|Блок):\s*([0-9]+(?:\.[0-9]+)?)\)?)?\s+with\s+a\s+([\p{L}\w\s\-]+)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // "CKZ | 238 Block | 8 Strafes | 55.56% AvgSync | 275.38 Pre | 344.17 Max | 30.30% AvgBadAngles | 0.00% AvgOverlap | 14.14% AvgDeadAir | JumpDirection: Forwards"
@@ -172,6 +172,14 @@ namespace LJTrainer.Core
             IsWatching = true;
 
             Task.Run(() => WatchLoop(_cts.Token));
+        }
+
+        public static void ReScanFullLogFromBeginning()
+        {
+            _lastFilePosition = 0;
+            _initialScanComplete = false;
+            UserProfile.Instance.LastLogPosition = 0;
+            _currentLogPath = FindCS2ConsoleLogFile();
         }
 
         public static void StopWatching()
@@ -603,6 +611,10 @@ namespace LJTrainer.Core
             if (string.Equals(cleanJump, cleanMy, StringComparison.OrdinalIgnoreCase)) return true;
             if (cleanJump.IndexOf(cleanMy, StringComparison.OrdinalIgnoreCase) >= 0 || cleanMy.IndexOf(cleanJump, StringComparison.OrdinalIgnoreCase) >= 0) return true;
 
+            string simJump = cleanJump.Replace(" ", "").Replace("_", "").Replace(".", "");
+            string simMy = cleanMy.Replace(" ", "").Replace("_", "").Replace(".", "");
+            if (simJump.Equals(simMy, StringComparison.OrdinalIgnoreCase) || simJump.Contains(simMy, StringComparison.OrdinalIgnoreCase) || simMy.Contains(simJump, StringComparison.OrdinalIgnoreCase)) return true;
+
             return false;
         }
 
@@ -620,11 +632,14 @@ namespace LJTrainer.Core
                 }
 
                 string targetNick = !string.IsNullOrEmpty(cs.CybershokeNick) ? cs.CybershokeNick : DetectedNick;
-                bool isMe = string.IsNullOrEmpty(evt.PlayerNick) || IsPlayerMatch(evt.PlayerNick, targetNick);
+                bool isMe = AppConfig.Instance.CaptureAllConsoleJumps ||
+                            string.IsNullOrEmpty(evt.PlayerNick) || 
+                            cs.RecentJumps.Count == 0 ||
+                            IsPlayerMatch(evt.PlayerNick, targetNick);
 
                 if (isMe)
                 {
-                    if (!string.IsNullOrEmpty(evt.PlayerNick) && (string.IsNullOrEmpty(cs.CybershokeNick) || cs.CybershokeNick == "CS2_Player" || cs.CybershokeNick == "Player"))
+                    if (!string.IsNullOrEmpty(evt.PlayerNick) && (string.IsNullOrEmpty(cs.CybershokeNick) || cs.CybershokeNick == "CS2_Player" || cs.CybershokeNick == "Player" || cs.RecentJumps.Count == 0))
                     {
                         cs.CybershokeNick = evt.PlayerNick;
                     }
@@ -745,6 +760,11 @@ namespace LJTrainer.Core
 
         public static string FindCS2ConsoleLogFile()
         {
+            if (!string.IsNullOrEmpty(AppConfig.Instance.CustomConsoleLogPath) && File.Exists(AppConfig.Instance.CustomConsoleLogPath))
+            {
+                return AppConfig.Instance.CustomConsoleLogPath;
+            }
+
             string gameDir = FindCS2GameDirectory();
             if (string.IsNullOrEmpty(gameDir)) return "";
 
@@ -762,7 +782,6 @@ namespace LJTrainer.Core
                 if (File.Exists(c)) return c;
             }
 
-            // If game directory exists but console.log not created yet, return expected path
             string defaultExpected = Path.Combine(gameDir, "game", "csgo", "console.log");
             if (Directory.Exists(Path.Combine(gameDir, "game", "csgo")))
             {

@@ -459,8 +459,9 @@ namespace LJTrainer.UI
             Theme.DrawText("// CS2 CONSOLE WATCHER (-condebug):", x, curY, 11, Theme.NeonGold);
             curY += (int)(22 * scale);
 
-            string logStatus = !string.IsNullOrEmpty(CS2ConsoleWatcher.ActiveLogPath) && File.Exists(CS2ConsoleWatcher.ActiveLogPath)
-                ? $"LOG: {Path.GetFileName(CS2ConsoleWatcher.ActiveLogPath)} [ ACTIVE ]"
+            string logFileName = !string.IsNullOrEmpty(CS2ConsoleWatcher.ActiveLogPath) ? Path.GetFileName(CS2ConsoleWatcher.ActiveLogPath) : "console.log";
+            string logStatus = (!string.IsNullOrEmpty(CS2ConsoleWatcher.ActiveLogPath) && File.Exists(CS2ConsoleWatcher.ActiveLogPath))
+                ? $"LOG: {logFileName} [ ACTIVE ] (Захвачено: {CS2ConsoleWatcher.EventsCaptured} соб.)"
                 : "LOG: [ НЕ НАЙДЕН — ДОБАВЬТЕ -condebug В CS2 ]";
 
             Color logCol = (!string.IsNullOrEmpty(CS2ConsoleWatcher.ActiveLogPath) && File.Exists(CS2ConsoleWatcher.ActiveLogPath))
@@ -469,6 +470,30 @@ namespace LJTrainer.UI
 
             Theme.DrawTechnicalBox(x, curY, w, btnH, null, Theme.Border, Theme.BgDark, false);
             Theme.DrawText(logStatus, x + 14, curY + (btnH - Theme.GetScaledFontSize(10)) / 2, 10, logCol);
+            curY += btnH + (int)(10 * scale);
+
+            int halfW = (w - 12) / 2;
+
+            if (Theme.DrawButton(x, curY, halfW, btnH, "Выбрать console.log...", false, 10))
+            {
+                OpenConsoleLogFileDialog();
+            }
+
+            if (Theme.DrawButton(x + halfW + 12, curY, halfW, btnH, "Пересканировать лог", false, 10))
+            {
+                CS2ConsoleWatcher.ReScanFullLogFromBeginning();
+                _importStatusMessage = "[OK] Полное сканирование console.log запущено с начала файла.";
+                _importStatusSuccess = true;
+            }
+            curY += btnH + (int)(10 * scale);
+
+            string capLabel = cfg.CaptureAllConsoleJumps ? "Захват: [ ВСЕ ПРЫЖКИ ИЗ КОНСОЛИ ]" : "Захват: [ ТОЛЬКО МОЙ НИК ]";
+            if (Theme.DrawButton(x, curY, w, btnH, capLabel, cfg.CaptureAllConsoleJumps, 10))
+            {
+                cfg.CaptureAllConsoleJumps = !cfg.CaptureAllConsoleJumps;
+                AppConfig.Save();
+                CS2ConsoleWatcher.ReScanFullLogFromBeginning();
+            }
 
             if (!string.IsNullOrEmpty(_importStatusMessage))
             {
@@ -478,6 +503,31 @@ namespace LJTrainer.UI
             }
 
             return curY + btnH;
+        }
+
+        private static void OpenConsoleLogFileDialog()
+        {
+            var t = new Thread(() =>
+            {
+                try
+                {
+                    using var ofd = new System.Windows.Forms.OpenFileDialog
+                    {
+                        Title = "Выберите файл console.log Counter-Strike 2",
+                        Filter = "CS2 Console Log (console.log;*.log;*.txt)|console.log;*.log;*.txt|Все файлы (*.*)|*.*",
+                        CheckFileExists = true
+                    };
+                    if (ofd.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    {
+                        AppConfig.Instance.CustomConsoleLogPath = ofd.FileName;
+                        AppConfig.Save();
+                        CS2ConsoleWatcher.ReScanFullLogFromBeginning();
+                    }
+                }
+                catch { }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
         }
 
         // =========================================================================
