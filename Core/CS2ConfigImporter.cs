@@ -155,6 +155,76 @@ namespace LJTrainer.Core
             };
         }
 
+        public static string? DetectLocalSteamPersonaName()
+        {
+            var steamRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+                    if (key?.GetValue("SteamPath") is string regPath && !string.IsNullOrEmpty(regPath))
+                    {
+                        steamRoots.Add(regPath.Replace('/', '\\'));
+                    }
+                    if (key?.GetValue("LastGameNameUsed") is string lastGameName && !string.IsNullOrWhiteSpace(lastGameName))
+                    {
+                        return lastGameName.Trim();
+                    }
+                }
+                catch { }
+            }
+
+            string[] standardDrives = { "C", "D", "E", "F", "G", "W" };
+            foreach (var d in standardDrives)
+            {
+                steamRoots.Add($@"{d}:\Program Files (x86)\Steam");
+                steamRoots.Add($@"{d}:\Program Files\Steam");
+                steamRoots.Add($@"{d}:\Steam");
+                steamRoots.Add($@"{d}:\SteamLibrary");
+            }
+
+            foreach (var root in steamRoots)
+            {
+                string loginUsersPath = Path.Combine(root, "config", "loginusers.vdf");
+                if (File.Exists(loginUsersPath))
+                {
+                    try
+                    {
+                        string content = File.ReadAllText(loginUsersPath);
+                        var matches = Regex.Matches(content, @"""(765611\d+)""\s*\{([^}]+)\}", RegexOptions.Singleline);
+                        
+                        string? mostRecentName = null;
+                        string? firstName = null;
+
+                        foreach (Match m in matches)
+                        {
+                            string block = m.Groups[2].Value;
+                            var pMatch = Regex.Match(block, @"""PersonaName""\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                            if (pMatch.Success && !string.IsNullOrWhiteSpace(pMatch.Groups[1].Value))
+                            {
+                                string name = pMatch.Groups[1].Value.Trim();
+                                if (firstName == null) firstName = name;
+
+                                if (block.Contains("\"MostRecent\"\t\t\"1\"") || block.Contains("\"MostRecent\" \"1\"") ||
+                                    block.Contains("\"AutoLogin\"\t\t\"1\"") || block.Contains("\"AutoLogin\" \"1\""))
+                                {
+                                    mostRecentName = name;
+                                }
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(mostRecentName)) return mostRecentName;
+                        if (!string.IsNullOrEmpty(firstName)) return firstName;
+                    }
+                    catch { }
+                }
+            }
+
+            return null;
+        }
+
         public static string? DetectLocalSteamId64(string? preferredNick = null)
         {
             var steamRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

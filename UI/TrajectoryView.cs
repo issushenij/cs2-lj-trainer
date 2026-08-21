@@ -10,22 +10,22 @@ namespace LJTrainer.UI
     {
         public static void Draw(JumpResult result, int x, int y, int width, int height)
         {
-            Theme.DrawPanel(x, y, width, height, "2D FLIGHT TRAJECTORY (TOP-DOWN)");
+            Theme.DrawTechnicalBox(x, y, width, height, "2D FLIGHT TRAJECTORY (TOP-DOWN)", Theme.Border, Theme.BgPanel);
 
             int viewX = x + 10;
             int viewY = y + 36;
             int viewW = width - 20;
             int viewH = height - 46;
 
-            // Background grid area
-            Raylib.DrawRectangle(viewX, viewY, viewW, viewH, new Color(9, 11, 15, 255));
+            // Background grid area - deep matte black with subtle dot matrix
+            Raylib.DrawRectangle(viewX, viewY, viewW, viewH, Theme.BgDark);
             Raylib.DrawRectangleLines(viewX, viewY, viewW, viewH, Theme.Border);
 
             if (result == null || result.Trajectory2D == null || result.Trajectory2D.Count < 2)
             {
-                string hint = "JUMP TRAJECTORY MAP";
-                int hw = Raylib.MeasureText(hint, 14);
-                Raylib.DrawText(hint, viewX + (viewW - hw) / 2, viewY + viewH / 2 - 8, 14, Theme.TextDim);
+                string hint = "> WAITING FOR JUMP TELEMETRY <";
+                int hw = Theme.MeasureText(hint, 12);
+                Theme.DrawText(hint, viewX + (viewW - hw) / 2, viewY + viewH / 2 - 6, 12, Theme.TextDim);
                 return;
             }
 
@@ -59,17 +59,18 @@ namespace LJTrainer.UI
                 if (markerScreenX < viewX + viewW - 10)
                 {
                     Color mCol = m >= 275 ? Theme.NeonGold : Theme.TextDim;
-                    Raylib.DrawLine((int)markerScreenX, viewY + 10, (int)markerScreenX, viewY + viewH - 10, new Color(mCol.R, mCol.G, mCol.B, (byte)50));
-                    Raylib.DrawText($"{m:0}", (int)markerScreenX - 10, viewY + viewH - 22, 10, mCol);
+                    Raylib.DrawLine((int)markerScreenX, viewY + 10, (int)markerScreenX, viewY + viewH - 10, new Color(mCol.R, mCol.G, mCol.B, (byte)45));
+                    Theme.DrawText($"{m:0}", (int)markerScreenX - 8, viewY + viewH - 20, 10, mCol);
                 }
             }
 
             // Draw Takeoff Platform Block
-            Raylib.DrawRectangle(viewX + 5, (int)(originScreenY - 35), (int)(originScreenX - viewX - 5), 70, new Color(28, 33, 46, 255));
-            Raylib.DrawLine((int)originScreenX, (int)(originScreenY - 35), (int)originScreenX, (int)(originScreenY + 35), Theme.NeonGreen);
-            Raylib.DrawText("TAKEOFF", viewX + 8, (int)(originScreenY - 6), 10, Theme.NeonGreen);
+            Raylib.DrawRectangle(viewX + 5, (int)(originScreenY - 30), (int)(originScreenX - viewX - 5), 60, Theme.BgPanel);
+            Raylib.DrawRectangleLines(viewX + 5, (int)(originScreenY - 30), (int)(originScreenX - viewX - 5), 60, Theme.Border);
+            Raylib.DrawLine((int)originScreenX, (int)(originScreenY - 30), (int)originScreenX, (int)(originScreenY + 30), Theme.NeonGreen);
+            Theme.DrawText("TAKEOFF", viewX + 8, (int)(originScreenY - 5), 9, Theme.NeonGreen);
 
-            // Draw Trajectory Segments
+            // Draw Trajectory as Console Matrix Points & Telemetry Filament
             int totalPts = result.Trajectory2D.Count;
             int strafeIndex = 0;
             int ptsPerStrafe = result.StrafeCount > 0 ? (totalPts / result.StrafeCount) : totalPts;
@@ -85,7 +86,15 @@ namespace LJTrainer.UI
                 Vector2 s0 = new(originScreenX + p0.X * scale, originScreenY + p0.Y * scale);
                 Vector2 s1 = new(originScreenX + p1.X * scale, originScreenY + p1.Y * scale);
 
-                Raylib.DrawLineEx(s0, s1, 2.5f, segColor);
+                // Connecting filament
+                Raylib.DrawLine((int)s0.X, (int)s0.Y, (int)s1.X, (int)s1.Y, new Color(segColor.R, segColor.G, segColor.B, (byte)70));
+
+                // Console matrix square dot
+                Raylib.DrawRectangle((int)s1.X - 1, (int)s1.Y - 1, 3, 3, segColor);
+                if (i % 3 == 0)
+                {
+                    Raylib.DrawRectangle((int)s1.X, (int)s1.Y, 1, 1, Theme.TextWhite);
+                }
             }
 
             // Landing Point Marker
@@ -93,11 +102,11 @@ namespace LJTrainer.UI
             {
                 var endPt = result.Trajectory2D[^1];
                 Vector2 endScreen = new(originScreenX + endPt.X * scale, originScreenY + endPt.Y * scale);
-                Raylib.DrawCircleV(endScreen, 5.0f, Theme.NeonCyan);
-                Raylib.DrawCircleLines((int)endScreen.X, (int)endScreen.Y, 8.0f, Theme.NeonGold);
+                Raylib.DrawRectangle((int)endScreen.X - 2, (int)endScreen.Y - 2, 5, 5, Theme.NeonCyan);
+                Raylib.DrawRectangleLines((int)endScreen.X - 6, (int)endScreen.Y - 6, 13, 13, Theme.NeonGold);
 
-                string landText = $"{result.Distance:F2}u";
-                Raylib.DrawText(landText, (int)endScreen.X + 8, (int)endScreen.Y - 8, 12, Theme.NeonGold);
+                string landText = $"[{result.Distance:F2}u]";
+                Theme.DrawDisplayText(landText, (int)endScreen.X + 10, (int)endScreen.Y - 8, 14, Theme.NeonGold);
             }
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Numerics;
 using Raylib_cs;
 using LJTrainer.Core;
@@ -9,11 +10,11 @@ namespace LJTrainer.UI
     {
         public bool IsOpen { get; set; } = false;
 
+        private float _openAnimProgress = 0.0f;
         private float _scrollY = 0f;
         private float _targetScrollY = 0f;
         private string _importStatusMessage = "";
         private bool _importStatusSuccess = false;
-        private float _openAnimProgress = 0.0f;
 
         public void Draw(int screenWidth, int screenHeight)
         {
@@ -23,49 +24,57 @@ namespace LJTrainer.UI
                 return;
             }
 
-            // Smooth spring fade & pop-in entrance
-            _openAnimProgress += Raylib.GetFrameTime() * 6.0f;
+            // Smooth entrance animation
+            _openAnimProgress += Raylib.GetFrameTime() * 8.0f;
             if (_openAnimProgress > 1.0f) _openAnimProgress = 1.0f;
 
             var cfg = AppConfig.Instance;
             float scale = cfg.UiScale;
             Vector2 mouse = Raylib.GetMousePosition();
 
-            // Backdrop dimming overlay with smooth fade
-            byte dimAlpha = (byte)(220 * _openAnimProgress);
-            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color((byte)0, (byte)0, (byte)0, dimAlpha));
+            // Backdrop dimming overlay with frosted tint
+            byte dimAlpha = (byte)(230 * _openAnimProgress);
+            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color((byte)4, (byte)7, (byte)12, dimAlpha));
 
-            int modalW = Math.Min((int)(820 * MathF.Min(scale, 1.15f)), screenWidth - 32);
-            int modalH = Math.Min((int)(700 * MathF.Min(scale, 1.15f)), screenHeight - 40);
+            int modalW = Math.Min((int)(840 * MathF.Min(scale, 1.15f)), screenWidth - 32);
+            int modalH = Math.Min((int)(640 * MathF.Min(scale, 1.15f)), screenHeight - 40);
 
-            // Pop-in slide offset
-            int animOffsetY = (int)((1.0f - _openAnimProgress) * 20.0f);
+            int animOffsetY = (int)((1.0f - _openAnimProgress) * 16.0f);
             int modalX = (screenWidth - modalW) / 2;
             int modalY = (screenHeight - modalH) / 2 + animOffsetY;
 
-            // Frosted Glass Container
-            Theme.DrawGlassPanel(modalX, modalY, modalW, modalH);
+            // Optical diffusion blur behind modal
+            Theme.DrawBackdropBlur(modalX, modalY, modalW, modalH, 16);
 
-            // Modal Header
-            int headerH = (int)(46 * scale);
+            // Technical container box
+            Theme.DrawTechnicalBox(modalX, modalY, modalW, modalH, null, Theme.Border, Theme.BgDark, true);
+
+            // Top Header (Height: 48px)
+            int headerH = (int)(48 * scale);
             Raylib.DrawRectangle(modalX, modalY, modalW, headerH, Theme.BgPanelHeader);
             Raylib.DrawLine(modalX, modalY + headerH, modalX + modalW, modalY + headerH, Theme.Border);
-            Raylib.DrawLine(modalX + 1, modalY + 1, modalX + modalW - 2, modalY + 1, new Color(255, 255, 255, 80));
 
-            Theme.DrawText("НАСТРОЙКИ ТРЕНАЖЕРА (SETTINGS)", modalX + 18, modalY + (headerH - Theme.GetScaledFontSize(15)) / 2, 15, Theme.NeonCyan);
+            // Specular top glass edge
+            Raylib.DrawLine(modalX + 1, modalY + 1, modalX + modalW - 2, modalY + 1, new Color(255, 255, 255, 30));
 
-            // Close button [X]
-            int closeW = (int)(95 * scale);
+            // Header Title
+            Theme.DrawText("[ SETTINGS // CONFIGURATION ]", modalX + 18, modalY + (headerH - Theme.GetScaledFontSize(12)) / 2, 12, Theme.NeonCyan);
+
+            // Close button [ESC]
+            int closeW = (int)(76 * scale);
             int closeH = (int)(28 * scale);
-            if (Theme.DrawButton(modalX + modalW - closeW - 14, modalY + (headerH - closeH) / 2, closeW, closeH, "ЗАКРЫТЬ", false, 12) ||
-                Raylib.IsKeyPressed(KeyboardKey.Escape))
+            int closeX = modalX + modalW - closeW - 14;
+            int closeY = modalY + (headerH - closeH) / 2;
+
+            if (Theme.DrawButton(closeX, closeY, closeW, closeH, "[ESC]", false, 11) ||
+                Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.Tab))
             {
                 IsOpen = false;
                 AppConfig.Save();
                 return;
             }
 
-            // Close on click outside
+            // Close on click outside modal
             if (Raylib.IsMouseButtonPressed(MouseButton.Left))
             {
                 if (mouse.X < modalX || mouse.X > modalX + modalW || mouse.Y < modalY || mouse.Y > modalY + modalH)
@@ -76,13 +85,16 @@ namespace LJTrainer.UI
                 }
             }
 
-            int contentX = modalX + 18;
-            int contentY = modalY + headerH + 12;
-            int contentW = modalW - 36;
-            int viewH = modalH - headerH - 24;
+            // Single Scrollable Content Box (No tab buttons)
+            int contentX = modalX + 16;
+            int contentY = modalY + headerH + (int)(12 * scale);
+            int contentW = modalW - 32;
+            int contentH = modalH - headerH - (int)(24 * scale);
 
-            // Handle Mouse Wheel Scroll within the modal
-            if (mouse.X >= modalX && mouse.X <= modalX + modalW && mouse.Y >= contentY && mouse.Y <= contentY + viewH)
+            Theme.DrawTechnicalBox(contentX, contentY, contentW, contentH, null, Theme.Border, Theme.BgPanel, false);
+
+            // Mouse wheel scroll within settings content
+            if (mouse.X >= contentX && mouse.X <= contentX + contentW && mouse.Y >= contentY && mouse.Y <= contentY + contentH)
             {
                 float wheel = Raylib.GetMouseWheelMove();
                 if (wheel != 0)
@@ -91,149 +103,118 @@ namespace LJTrainer.UI
                 }
             }
 
-            // Smooth scroll interpolation
             _scrollY += (_targetScrollY - _scrollY) * 0.35f;
 
-            // Scissor clipping for clean scrollview
-            Raylib.BeginScissorMode(modalX + 6, contentY, modalW - 12, viewH);
+            Raylib.BeginScissorMode(contentX + 2, contentY + 2, contentW - 4, contentH - 4);
 
-            int curY = contentY - (int)_scrollY;
-            int cardW = contentW - 14; // Leave room for scrollbar
-            int gap = (int)(16 * scale);
+            int pad = (int)(16 * scale);
+            int innerX = contentX + pad;
+            int curY = contentY + pad - (int)_scrollY;
+            int innerW = contentW - pad * 2 - 8; // Leave room for scrollbar
+            int gap = (int)(18 * scale);
 
-            // =========================================================================
-            // 1. SECTION: MOUSE & SENSITIVITY
-            // =========================================================================
-            int s1H = DrawMouseSection(contentX, curY, cardW, scale, cfg);
-            curY += s1H + gap;
+            // 1. Section: Mouse & Sensitivity
+            curY = DrawMouseSection(innerX, curY, innerW, scale, cfg);
+            curY += gap;
 
-            // =========================================================================
-            // 2. SECTION: METRONOME & CADENCE
-            // =========================================================================
-            int s2H = DrawCadenceSection(contentX, curY, cardW, scale, cfg);
-            curY += s2H + gap;
+            // 2. Section: Trainer & Cadence
+            curY = DrawTrainerSection(innerX, curY, innerW, scale, cfg);
+            curY += gap;
 
-            // =========================================================================
-            // 3. SECTION: AUDIO & BIOFEEDBACK
-            // =========================================================================
-            int s3H = DrawAudioSection(contentX, curY, cardW, scale, cfg);
-            curY += s3H + gap;
+            // 3. Section: Audio & Feedback
+            curY = DrawAudioSection(innerX, curY, innerW, scale, cfg);
+            curY += gap;
 
-            // =========================================================================
-            // 4. SECTION: THEME & VISUALS
-            // =========================================================================
-            int s4H = DrawVisualsSection(contentX, curY, cardW, scale, cfg);
-            curY += s4H + gap;
+            // 4. Section: Visuals & UI Scale
+            curY = DrawVisualsSection(innerX, curY, innerW, scale, cfg);
+            curY += gap;
 
-            // =========================================================================
-            // 5. SECTION: PHYSICS & SIMULATION
-            // =========================================================================
-            int s5H = DrawPhysicsSection(contentX, curY, cardW, scale, cfg);
-            curY += s5H + gap;
+            // 5. Section: CS2 & Cybershoke Live Sync
+            curY = DrawSyncSection(innerX, curY, innerW, scale, cfg);
+            curY += gap;
 
-            // =========================================================================
-            // 6. SECTION: SYSTEM TRAY & BACKGROUND MODE
-            // =========================================================================
-            int s6H = DrawTraySection(contentX, curY, cardW, scale, cfg);
-            curY += s6H + gap;
-
-            // =========================================================================
-            // 7. SECTION: UPDATES & VERSION
-            // =========================================================================
-            int s7H = DrawUpdateSection(contentX, curY, cardW, scale, cfg);
-            curY += s7H + gap;
+            // 6. Section: Software Updates & Version Info
+            curY = DrawUpdateSection(innerX, curY, innerW, scale, cfg);
+            curY += gap;
 
             Raylib.EndScissorMode();
 
-            // Total height calculation & Scroll clamping
-            int totalContentHeight = (curY + (int)_scrollY) - contentY;
-            float maxScroll = Math.Max(0, totalContentHeight - viewH);
+            int totalHeight = (curY + (int)_scrollY) - (contentY + pad);
+            float maxScroll = Math.Max(0, totalHeight - (contentH - pad * 2));
             _targetScrollY = Math.Clamp(_targetScrollY, 0, maxScroll);
             if (maxScroll <= 0) _scrollY = 0;
 
-            // Draw Scrollbar track & thumb
+            // Draw clean scrollbar
             if (maxScroll > 0)
             {
-                int barX = modalX + modalW - 14;
-                int barY = contentY;
-                int barW = 6;
-                int barH = viewH;
+                int sbX = contentX + contentW - 8;
+                int sbY = contentY + 6;
+                int sbH = contentH - 12;
+                float thumbPct = Math.Clamp((float)(contentH - pad * 2) / totalHeight, 0.12f, 1.0f);
+                int thumbH = (int)(sbH * thumbPct);
+                int thumbY = sbY + (int)((sbH - thumbH) * (_scrollY / maxScroll));
 
-                // Track
-                Raylib.DrawRectangle(barX, barY, barW, barH, new Color(20, 26, 38, 180));
-
-                // Thumb
-                float thumbRatio = (float)viewH / totalContentHeight;
-                int thumbH = Math.Max(28, (int)(barH * thumbRatio));
-                float scrollPct = _scrollY / maxScroll;
-                int thumbY = barY + (int)((barH - thumbH) * scrollPct);
-
-                Raylib.DrawRectangle(barX, thumbY, barW, thumbH, Theme.NeonCyan);
+                Raylib.DrawRectangle(sbX, sbY, 3, sbH, new Color(255, 255, 255, 18));
+                Raylib.DrawRectangle(sbX, thumbY, 3, thumbH, Theme.NeonCyan);
             }
         }
 
         // =========================================================================
-        // SECTION 1: MOUSE & SENSITIVITY
+        // SECTION 1: SENSITIVITY & MOUSE
         // =========================================================================
-        private int DrawMouseSection(int x, int y, int width, float scale, AppConfig cfg)
+        private int DrawMouseSection(int x, int y, int w, float scale, AppConfig cfg)
         {
-            int h = (int)(175 * scale);
-            if (!string.IsNullOrEmpty(_importStatusMessage)) h += (int)(24 * scale);
+            int curY = y;
+            int btnH = (int)(30 * scale);
 
-            DrawSectionCard(x, y, width, h, "1. ЧУВСТВИТЕЛЬНОСТЬ МЫШИ (CS2 SENSITIVITY)", Theme.NeonCyan);
+            Theme.DrawText("// 1. MOUSE SENSITIVITY & IN-GAME SENS:", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
 
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
+            // Step buttons & sens value
+            int stepW = (int)(40 * scale);
+            int sensDisplayW = (int)(110 * scale);
 
-            // Top Status Line: Current Sensitivity & m_yaw
-            string sensInfo = $"Текущая сенса: {cfg.Sensitivity:F2}   (m_yaw: {cfg.YawFactor:F4})";
-            Theme.DrawText(sensInfo, innerX, curY + 4, 13, Theme.NeonGold);
-            curY += (int)(26 * scale);
-
-            // Stepper [-] [+] and Sens Presets
-            float[] sensPresets = { 0.8f, 1.0f, 1.2f, 1.5f, 2.0f, 2.5f, 3.0f };
-            int stepBtnW = (int)(34 * scale);
-            int gap = 6;
-            int bx = innerX;
-
-            // [-]
-            if (Theme.DrawButton(bx, curY, stepBtnW, btnH, "−", false, 14))
+            if (Theme.DrawButton(x, curY, stepW, btnH, "-", false, 14))
             {
                 cfg.Sensitivity = MathF.Max(0.1f, MathF.Round((cfg.Sensitivity - 0.05f) * 100f) / 100f);
                 AppConfig.Save();
             }
-            bx += stepBtnW + gap;
 
-            // [+]
-            if (Theme.DrawButton(bx, curY, stepBtnW, btnH, "+", false, 14))
+            Raylib.DrawRectangle(x + stepW + 6, curY, sensDisplayW, btnH, Theme.BgDark);
+            Raylib.DrawRectangleLines(x + stepW + 6, curY, sensDisplayW, btnH, Theme.NeonCyan);
+            string sensStr = cfg.Sensitivity.ToString("F2");
+            int sw = Theme.MeasureDisplayText(sensStr, 16);
+            Theme.DrawDisplayText(sensStr, x + stepW + 6 + (sensDisplayW - sw) / 2, curY + 6, 16, Theme.NeonCyan);
+
+            if (Theme.DrawButton(x + stepW + sensDisplayW + 12, curY, stepW, btnH, "+", false, 14))
             {
                 cfg.Sensitivity = MathF.Min(10.0f, MathF.Round((cfg.Sensitivity + 0.05f) * 100f) / 100f);
                 AppConfig.Save();
             }
-            bx += stepBtnW + gap + 4;
 
-            // Presets chips
-            int remainingW = innerX + innerW - bx;
-            int presetBtnW = (remainingW - (sensPresets.Length - 1) * gap) / sensPresets.Length;
+            // Quick Sens Presets
+            int presetStartX = x + stepW * 2 + sensDisplayW + 18;
+            int presetAvailW = x + w - presetStartX;
+            float[] sensPresets = { 0.8f, 1.0f, 1.2f, 1.4f, 1.6f, 1.8f, 2.0f, 2.5f };
+            int pBtnW = (presetAvailW - (sensPresets.Length - 1) * 6) / sensPresets.Length;
 
-            foreach (var sp in sensPresets)
+            for (int i = 0; i < sensPresets.Length; i++)
             {
+                float sp = sensPresets[i];
                 bool active = MathF.Abs(cfg.Sensitivity - sp) < 0.01f;
-                if (Theme.DrawButton(bx, curY, presetBtnW, btnH, sp.ToString("F1"), active, 11))
+                int bx = presetStartX + i * (pBtnW + 6);
+                if (Theme.DrawButton(bx, curY, pBtnW, btnH, sp.ToString("F1"), active, 11))
                 {
                     cfg.Sensitivity = sp;
                     AppConfig.Save();
                 }
-                bx += presetBtnW + gap;
             }
 
-            // Row 2: CS2 Auto Import & Reversal Trigger
-            curY += (int)(36 * scale);
-            int halfW = (innerW - gap) / 2;
+            curY += btnH + (int)(10 * scale);
 
-            if (Theme.DrawButton(innerX, curY, halfW, btnH, "Авто-импорт sens из CS2", false, 12))
+            // CS2 Config Auto-Import Row
+            int halfW = (w - 12) / 2;
+            if (Theme.DrawButton(x, curY, halfW, btnH, "Авто-импорт sens из CS2", false, 11))
             {
                 var res = CS2ConfigImporter.TryAutoImport();
                 if (res.Success)
@@ -251,15 +232,15 @@ namespace LJTrainer.UI
                 }
             }
 
-            // Reversal trigger switch
-            int trigW = (halfW - gap) / 2;
-            int trigX = innerX + halfW + gap;
+            // Reversal Trigger Mode
+            int trigW = (halfW - 8) / 2;
+            int trigX = x + halfW + 12;
             if (Theme.DrawButton(trigX, curY, trigW, btnH, "Разворот: Мышь", cfg.FreestyleTrigger == ReversalTriggerMode.ByMouseMovement, 11))
             {
                 cfg.FreestyleTrigger = ReversalTriggerMode.ByMouseMovement;
                 AppConfig.Save();
             }
-            if (Theme.DrawButton(trigX + trigW + gap, curY, trigW, btnH, "Разворот: A / D", cfg.FreestyleTrigger == ReversalTriggerMode.ByKeyPress, 11))
+            if (Theme.DrawButton(trigX + trigW + 8, curY, trigW, btnH, "Разворот: A / D", cfg.FreestyleTrigger == ReversalTriggerMode.ByKeyPress, 11))
             {
                 cfg.FreestyleTrigger = ReversalTriggerMode.ByKeyPress;
                 AppConfig.Save();
@@ -267,391 +248,224 @@ namespace LJTrainer.UI
 
             if (!string.IsNullOrEmpty(_importStatusMessage))
             {
-                curY += (int)(32 * scale);
-                Color statusCol = _importStatusSuccess ? Theme.NeonGreen : Theme.NeonOrange;
-                Theme.DrawText(_importStatusMessage, innerX, curY, 11, statusCol);
+                curY += btnH + 6;
+                Color sc = _importStatusSuccess ? Theme.NeonGreen : Theme.NeonRed;
+                Theme.DrawText(_importStatusMessage, x, curY, 10, sc);
             }
 
-            return h;
+            return curY + btnH;
         }
 
         // =========================================================================
-        // SECTION 2: METRONOME & CADENCE
+        // SECTION 2: TRAINER & CADENCE
         // =========================================================================
-        private int DrawCadenceSection(int x, int y, int width, float scale, AppConfig cfg)
+        private int DrawTrainerSection(int x, int y, int w, float scale, AppConfig cfg)
         {
-            int h = (int)(165 * scale);
-            DrawSectionCard(x, y, width, h, "2. МЕТРОНОМ И ТЕМП СТРЕЙФОВ (CADENCE)", Theme.NeonGreen);
+            int curY = y;
+            int btnH = (int)(30 * scale);
 
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
-            int gap = 6;
+            Theme.DrawText("// 2. TRAINER TARGET STRAFES & METRONOME:", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
 
-            // Master Toggle Button
-            string mToggleLabel = cfg.MetronomeEnabled
-                ? $"МЕТРОНОМ: ВКЛЮЧЕН  ({cfg.TargetStrafeDurationMs:F0} мс  |  ~{cfg.TargetStrafes} стрейфов в LJ)"
-                : "МЕТРОНОМ: ВЫКЛЮЧЕН (Свободный темп + звук на каждом развороте)";
-            if (Theme.DrawButton(innerX, curY, innerW, (int)(30 * scale), mToggleLabel, cfg.MetronomeEnabled, 12))
+            int[] strafePresets = { 4, 6, 7, 8, 9, 10, 12 };
+            int sBtnW = (w - (strafePresets.Length - 1) * 8) / strafePresets.Length;
+
+            for (int i = 0; i < strafePresets.Length; i++)
+            {
+                int count = strafePresets[i];
+                bool active = (cfg.TargetStrafes == count);
+                int bx = x + i * (sBtnW + 8);
+                if (Theme.DrawButton(bx, curY, sBtnW, btnH, $"{count} str", active, 11))
+                {
+                    cfg.TargetStrafes = count;
+                    AppConfig.Save();
+                }
+            }
+
+            curY += btnH + (int)(10 * scale);
+
+            Theme.DrawText($"// TARGET DURATION: {cfg.TargetStrafeDurationMs:F0}ms ({cfg.CalculatedMetronomeBpm} BPM):", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
+
+            float[] durPresets = { 75f, 85f, 90f, 95f, 105f, 115f, 125f };
+            int dBtnW = (w - (durPresets.Length - 1) * 8) / durPresets.Length;
+
+            for (int i = 0; i < durPresets.Length; i++)
+            {
+                float d = durPresets[i];
+                bool active = MathF.Abs(cfg.TargetStrafeDurationMs - d) < 1.0f;
+                int bx = x + i * (dBtnW + 8);
+                if (Theme.DrawButton(bx, curY, dBtnW, btnH, $"{d:F0}ms", active, 11))
+                {
+                    cfg.TargetStrafeDurationMs = d;
+                    AppConfig.Save();
+                }
+            }
+
+            curY += btnH + (int)(10 * scale);
+
+            int halfW = (w - 12) / 2;
+            string metroLabel = cfg.MetronomeEnabled ? "Метроном: [ ВКЛЮЧЕН ]" : "Метроном: [ ВЫКЛЮЧЕН ]";
+            if (Theme.DrawButton(x, curY, halfW, btnH, metroLabel, cfg.MetronomeEnabled, 11))
             {
                 cfg.MetronomeEnabled = !cfg.MetronomeEnabled;
                 AppConfig.Save();
             }
 
-
-            // Strafe count presets
-            curY += (int)(38 * scale);
-            Theme.DrawText("Темп стрейфов:", innerX, curY + 5, 12, Theme.TextWhite);
-            int labelW = (int)(105 * scale);
-            int[] strafePresets = { 6, 7, 8, 9, 10, 12 };
-            int cadBtnW = (innerW - labelW - (strafePresets.Length - 1) * gap) / strafePresets.Length;
-            int curCadX = innerX + labelW;
-
-            for (int i = 0; i < strafePresets.Length; i++)
-            {
-                int strNum = strafePresets[i];
-                bool isCur = !cfg.UseCustomDuration && cfg.TargetStrafes == strNum;
-                if (Theme.DrawButton(curCadX, curY, cadBtnW, btnH, $"{strNum} стр", isCur, 11))
-                {
-                    cfg.TargetStrafes = strNum;
-                    cfg.UseCustomDuration = false;
-                    AppConfig.Save();
-                }
-                curCadX += cadBtnW + gap;
-            }
-
-            // Precise Milliseconds Adjuster
-            curY += (int)(34 * scale);
-            Theme.DrawText("Длительность:", innerX, curY + 5, 12, Theme.TextWhite);
-            int durAdjX = innerX + labelW;
-            int durBtnW = (int)(32 * scale);
-
-            if (Theme.DrawButton(durAdjX, curY, durBtnW, btnH, "−", false, 14))
-            {
-                cfg.CustomTargetDurationMs = Math.Clamp(cfg.TargetStrafeDurationMs - 5.0f, 40.0f, 200.0f);
-                cfg.UseCustomDuration = true;
-                AppConfig.Save();
-            }
-            durAdjX += durBtnW + gap;
-
-            string durText = $"{cfg.TargetStrafeDurationMs:F0} мс   ({cfg.CalculatedMetronomeBpm} BPM)";
-            Theme.DrawText(durText, durAdjX, curY + (btnH - Theme.GetScaledFontSize(12)) / 2, 12, Theme.NeonGold);
-            durAdjX += Theme.MeasureText(durText, 12) + gap + 6;
-
-            if (Theme.DrawButton(durAdjX, curY, durBtnW, btnH, "+", false, 14))
-            {
-                cfg.CustomTargetDurationMs = Math.Clamp(cfg.TargetStrafeDurationMs + 5.0f, 40.0f, 200.0f);
-                cfg.UseCustomDuration = true;
-                AppConfig.Save();
-            }
-
-            return h;
+            return curY + btnH;
         }
 
         // =========================================================================
-        // SECTION 3: AUDIO & BIOFEEDBACK
+        // SECTION 3: AUDIO & FEEDBACK
         // =========================================================================
-        private int DrawAudioSection(int x, int y, int width, float scale, AppConfig cfg)
+        private int DrawAudioSection(int x, int y, int w, float scale, AppConfig cfg)
         {
-            int soundCols = 4;
-            int rows = 4;
-            int sndH = (int)(24 * scale);
-            int soundGridH = rows * (sndH + 4);
+            int curY = y;
+            int btnH = (int)(30 * scale);
 
-            int h = (int)(185 * scale) + soundGridH;
-            DrawSectionCard(x, y, width, h, "3. ЗВУК И АУДИО-БИОФИДБЕК (AUDIO FEEDBACK)", Theme.NeonPurple);
+            Theme.DrawText("// 3. MASTER AUDIO & VOLUME:", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
 
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
-            int gap = 6;
-
-            // Master Volume Row
-            Theme.DrawText("Громкость:", innerX, curY + 5, 12, Theme.TextWhite);
-            int labelW = (int)(85 * scale);
-            int vBtnW = (int)(32 * scale);
-            int vX = innerX + labelW;
-
-            if (Theme.DrawButton(vX, curY, vBtnW, btnH, "−", false, 14))
-            {
-                cfg.MasterVolume = Math.Clamp(cfg.MasterVolume - 0.05f, 0.0f, 1.0f);
-                AppConfig.Save();
-            }
-            vX += vBtnW + gap;
-
-            string volText = $"{(int)(cfg.MasterVolume * 100)}%";
-            Theme.DrawText(volText, vX, curY + (btnH - Theme.GetScaledFontSize(12)) / 2, 12, Theme.TextWhite);
-            vX += Theme.MeasureText(volText, 12) + gap + 6;
-
-            if (Theme.DrawButton(vX, curY, vBtnW, btnH, "+", false, 14))
-            {
-                cfg.MasterVolume = Math.Clamp(cfg.MasterVolume + 0.05f, 0.0f, 1.0f);
-                AppConfig.Save();
-            }
-            vX += vBtnW + gap + 10;
-
-            int muteW = (int)(130 * scale);
-            if (Theme.DrawButton(vX, curY, muteW, btnH, cfg.SoundEnabled ? "ЗВУК: ВКЛ" : "БЕЗ ЗВУКА", cfg.SoundEnabled, 11))
+            int halfW = (w - 12) / 2;
+            string soundLabel = cfg.SoundEnabled ? "Звуковые эффекты: [ ВКЛ ]" : "Звуковые эффекты: [ ВЫКЛ ]";
+            if (Theme.DrawButton(x, curY, halfW, btnH, soundLabel, cfg.SoundEnabled, 11))
             {
                 cfg.SoundEnabled = !cfg.SoundEnabled;
                 AppConfig.Save();
             }
 
-            // Biofeedback Toggle
-            curY += (int)(34 * scale);
-            string bioLabel = cfg.AudioBiofeedback ? "Звуковой биофидбек: ВКЛЮЧЕН" : "Звуковой биофидбек: ВЫКЛЮЧЕН";
-            if (Theme.DrawButton(innerX, curY, innerW, btnH, bioLabel, cfg.AudioBiofeedback, 12))
+            // Volume Buttons
+            int volStartX = x + halfW + 12;
+            int volAvailW = w - halfW - 12;
+            float[] vols = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f };
+            int vBtnW = (volAvailW - (vols.Length - 1) * 6) / vols.Length;
+
+            for (int i = 0; i < vols.Length; i++)
             {
-                cfg.AudioBiofeedback = !cfg.AudioBiofeedback;
-                AppConfig.Save();
-            }
-
-            curY += (int)(32 * scale);
-            Theme.DrawWrappedText("• Чистая синхра (>80%): перезвон  • Погрешность: -3 полутона  • Ошибка/Overlap: глухой щелчок", innerX, curY, innerW, 11, 2, Theme.TextMuted);
-            curY += (int)(26 * scale);
-
-            // Metronome Sound Profiles Matrix
-            Theme.DrawText("Профиль звука метронома (кликните для прослушивания):", innerX, curY, 12, Theme.TextWhite);
-            curY += (int)(20 * scale);
-
-            int sndW = (innerW - (soundCols - 1) * 4) / soundCols;
-
-            for (int i = 0; i < AudioEngine.SoundPresetNames.Length; i++)
-            {
-                int c = i % soundCols;
-                int r = i / soundCols;
-                int sx = innerX + c * (sndW + 4);
-                int sy = curY + r * (sndH + 4);
-
-                bool isSel = cfg.SoundPresetIndex == i;
-                string sName = AudioEngine.SoundPresetNames[i];
-
-                if (Theme.DrawButton(sx, sy, sndW, sndH, sName, isSel, 10))
+                float v = vols[i];
+                bool active = MathF.Abs(cfg.MasterVolume - v) < 0.05f;
+                int bx = volStartX + i * (vBtnW + 6);
+                if (Theme.DrawButton(bx, curY, vBtnW, btnH, $"{(int)(v * 100)}%", active, 11))
                 {
-                    cfg.SoundPresetIndex = i;
-                    AudioEngine.PlayMetronomeTick(i, false);
+                    cfg.MasterVolume = v;
                     AppConfig.Save();
                 }
             }
 
-            return h;
+            return curY + btnH;
         }
 
         // =========================================================================
-        // SECTION 4: THEME & VISUALS
+        // SECTION 4: VISUALS & UI
         // =========================================================================
-        private int DrawVisualsSection(int x, int y, int width, float scale, AppConfig cfg)
+        private int DrawVisualsSection(int x, int y, int w, float scale, AppConfig cfg)
         {
-            int h = (int)(130 * scale);
-            DrawSectionCard(x, y, width, h, "4. ТЕМА И МАСШТАБ ИНТЕРФЕЙСА (THEME & UI)", Theme.NeonGold);
+            int curY = y;
+            int btnH = (int)(30 * scale);
 
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
-            int gap = 6;
+            Theme.DrawText("// 4. UI INTERFACE SCALE & VISUALS:", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
 
-            // Themes
-            Theme.DrawText("Цветовая тема:", innerX, curY + 5, 12, Theme.TextWhite);
-            int labelW = (int)(110 * scale);
-            int thW = (innerW - labelW - 2 * gap) / 3;
-            int thX = innerX + labelW;
-
-            if (Theme.DrawButton(thX, curY, thW, btnH, "Cyber Neon", cfg.Theme == ColorTheme.CyberNeon, 11))
-            {
-                cfg.Theme = ColorTheme.CyberNeon;
-                AppConfig.Save();
-            }
-            if (Theme.DrawButton(thX + thW + gap, curY, thW, btnH, "OLED Mono", cfg.Theme == ColorTheme.OLEDMonochrome, 11))
-            {
-                cfg.Theme = ColorTheme.OLEDMonochrome;
-                AppConfig.Save();
-            }
-            if (Theme.DrawButton(thX + (thW + gap) * 2, curY, thW, btnH, "Amber Sunset", cfg.Theme == ColorTheme.AmberSunset, 11))
-            {
-                cfg.Theme = ColorTheme.AmberSunset;
-                AppConfig.Save();
-            }
-
-            // UI Scale Chips
-            curY += (int)(36 * scale);
-            Theme.DrawText("Масштаб UI:", innerX, curY + 5, 12, Theme.TextWhite);
-            float[] scales = { 1.0f, 1.25f, 1.50f, 1.75f };
-            string[] scaleLabels = { "100%", "125%", "150%", "175%" };
-            int scW = (innerW - labelW - (scales.Length - 1) * gap) / scales.Length;
-            int curScX = innerX + labelW;
+            float[] scales = { 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.5f };
+            int scBtnW = (w - (scales.Length - 1) * 8) / scales.Length;
 
             for (int i = 0; i < scales.Length; i++)
             {
                 float sc = scales[i];
-                bool isCurScale = MathF.Abs(cfg.UiScale - sc) < 0.05f;
-                if (Theme.DrawButton(curScX, curY, scW, btnH, scaleLabels[i], isCurScale, 11))
+                bool active = MathF.Abs(cfg.UiScale - sc) < 0.03f;
+                int bx = x + i * (scBtnW + 8);
+                if (Theme.DrawButton(bx, curY, scBtnW, btnH, $"{sc:F1}x", active, 11))
                 {
                     cfg.UiScale = sc;
                     AppConfig.Save();
                 }
-                curScX += scW + gap;
             }
 
-            return h;
+            curY += btnH + (int)(10 * scale);
+
+            int halfW = (w - 12) / 2;
+
+            string tipsLabel = cfg.ShowTooltips ? "Подсказки: [ ВКЛ ]" : "Подсказки: [ ВЫКЛ ]";
+            if (Theme.DrawButton(x, curY, halfW, btnH, tipsLabel, cfg.ShowTooltips, 11))
+            {
+                cfg.ShowTooltips = !cfg.ShowTooltips;
+                AppConfig.Save();
+            }
+
+            string crtLabel = cfg.ShowCrtScanlines ? "CRT Scanlines: [ ВКЛ ]" : "CRT Scanlines: [ ВЫКЛ ]";
+            if (Theme.DrawButton(x + halfW + 12, curY, halfW, btnH, crtLabel, cfg.ShowCrtScanlines, 11))
+            {
+                cfg.ShowCrtScanlines = !cfg.ShowCrtScanlines;
+                AppConfig.Save();
+            }
+
+            return curY + btnH;
         }
 
         // =========================================================================
-        // SECTION 5: PHYSICS & SIMULATION
+        // SECTION 5: CS2 & CYBERSHOKE SYNC
         // =========================================================================
-        private int DrawPhysicsSection(int x, int y, int width, float scale, AppConfig cfg)
+        private int DrawSyncSection(int x, int y, int w, float scale, AppConfig cfg)
         {
-            int h = (int)(105 * scale);
-            DrawSectionCard(x, y, width, h, "5. ФИЗИКА И СИМУЛЯЦИЯ (PHYSICS ENGINE)", Theme.NeonOrange);
+            int curY = y;
+            int btnH = (int)(32 * scale);
 
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
-            int gap = 6;
+            var prof = UserProfile.Instance;
+            var cs = prof.Cybershoke;
 
-            Theme.DrawText("Режим физики:", innerX, curY + 5, 12, Theme.TextWhite);
-            int labelW = (int)(110 * scale);
-            int physW = (innerW - labelW - gap) / 2;
-            int physX = innerX + labelW;
+            Theme.DrawText("// 5. STEAM & CYBERSHOKE LIVE SYNC:", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
 
-            if (Theme.DrawButton(physX, curY, physW, btnH, "CKZ / KZ (100 AA, 276 Pre)", cfg.Mode == PhysicsMode.CKZ, 11))
+            string sidText = !string.IsNullOrEmpty(cs.SteamId64) ? $"STEAM_ID: {cs.SteamId64}" : "STEAM: [ NOT LINKED ]";
+            Theme.DrawTechnicalBox(x, curY, w, btnH, null, Theme.Border, Theme.BgDark, false);
+            Theme.DrawText(sidText, x + 14, curY + (btnH - Theme.GetScaledFontSize(11)) / 2, 11, !string.IsNullOrEmpty(cs.SteamId64) ? Theme.NeonGreen : Theme.NeonOrange);
+
+            curY += btnH + (int)(10 * scale);
+
+            string syncLabel = CybershokeWebSync.IsSyncing ? "Синхронизация профиля..." : "Синхронизировать профиль Cybershoke / CS2";
+            if (Theme.DrawButton(x, curY, w, btnH, syncLabel, CybershokeWebSync.IsSyncing, 11, enabled: !CybershokeWebSync.IsSyncing))
             {
-                cfg.Mode = PhysicsMode.CKZ;
-                AppConfig.Save();
-            }
-            if (Theme.DrawButton(physX + physW + gap, curY, physW, btnH, "Vanilla CS2 (12 AA, 250 Pre)", cfg.Mode == PhysicsMode.Vanilla, 11))
-            {
-                cfg.Mode = PhysicsMode.Vanilla;
-                AppConfig.Save();
-            }
-
-            return h;
-        }
-
-        // =========================================================================
-        // SECTION 6: SYSTEM TRAY & BACKGROUND MODE
-        // =========================================================================
-        private int DrawTraySection(int x, int y, int width, float scale, AppConfig cfg)
-        {
-            int h = (int)(115 * scale);
-            DrawSectionCard(x, y, width, h, "6. ПОВЕДЕНИЕ ОКНА И ФОНОВЫЙ РЕЖИМ (SYSTEM TRAY)", Theme.NeonGreen);
-
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
-
-            string trayLabel = cfg.MinimizeToTrayOnClose 
-                ? "Сворачивать в системный трей при закрытии [X]: ВКЛЮЧЕНО" 
-                : "Сворачивать в системный трей при закрытии [X]: ВЫКЛЮЧЕНО (закрывать программу)";
-
-            if (Theme.DrawButton(innerX, curY, innerW, btnH, trayLabel, cfg.MinimizeToTrayOnClose, 11))
-            {
-                cfg.MinimizeToTrayOnClose = !cfg.MinimizeToTrayOnClose;
-                AppConfig.Save();
-            }
-
-            curY += (int)(34 * scale);
-            Theme.DrawWrappedText("• В свёрнутом состоянии в трее звуки рекордов CS2 и парсинг прыжков продолжают работать в фоне!\n• Закрытие программы на клавишу Escape отключено (закрыть можно только на [X] или через меню трея).", innerX, curY, innerW, 10, 2, Theme.TextMuted);
-
-            return h;
-        }
-
-        // =========================================================================
-        // SECTION 7: UPDATES & IN-APP UPGRADE
-        // =========================================================================
-        private int DrawUpdateSection(int x, int y, int width, float scale, AppConfig cfg)
-        {
-            int h = (int)(155 * scale);
-            DrawSectionCard(x, y, width, h, "7. ОБНОВЛЕНИЯ И ВЕРСИЯ ПРОГРАММЫ", Theme.NeonCyan);
-
-            int innerX = x + 18;
-            int innerW = width - 36;
-            int curY = y + (int)(40 * scale);
-            int btnH = (int)(28 * scale);
-            int gap = 8;
-
-            // Row 1: Current Version & Status
-            string verInfo = $"Текущая версия: {UpdateManager.CurrentVersion}";
-            if (UpdateManager.UpdateAvailable)
-            {
-                verInfo += $"  ➔  ДОСТУПНА: {UpdateManager.LatestRelease?.TagName ?? "NEW"}";
-            }
-            Theme.DrawText(verInfo, innerX, curY + 4, 12, UpdateManager.UpdateAvailable ? Theme.NeonGold : Theme.NeonCyan);
-            curY += (int)(26 * scale);
-
-            // Row 2: Auto Check Toggle Switch
-            string autoCheckLabel = cfg.AutoCheckUpdates 
-                ? "Проверять обновления при запуске: ВКЛЮЧЕНО" 
-                : "Проверять обновления при запуске: ВЫКЛЮЧЕНО";
-
-            int halfW = (innerW - gap) / 2;
-            if (Theme.DrawButton(innerX, curY, halfW, btnH, autoCheckLabel, cfg.AutoCheckUpdates, 11))
-            {
-                cfg.AutoCheckUpdates = !cfg.AutoCheckUpdates;
-                AppConfig.Save();
-            }
-
-            // Row 2 Right: Check / Update Button
-            int actBtnX = innerX + halfW + gap;
-            if (UpdateManager.IsChecking || UpdateManager.IsDownloading)
-            {
-                Raylib.DrawRectangle(actBtnX, curY, halfW, btnH, new Color(30, 25, 10, 220));
-                Raylib.DrawRectangleLines(actBtnX, curY, halfW, btnH, Theme.NeonGold);
-                string stat = UpdateManager.IsDownloading ? $"Загрузка {UpdateManager.DownloadProgress * 100:F0}%" : "Проверка...";
-                Theme.DrawText(stat, actBtnX + 12, curY + 6, 11, Theme.NeonGold);
-            }
-            else
-            {
-                string btnText = UpdateManager.UpdateAvailable ? "⚡ Установить обновление" : "Проверить обновления сейчас";
-                bool isUp = UpdateManager.UpdateAvailable;
-                if (Theme.DrawButton(actBtnX, curY, halfW, btnH, btnText, isUp, 11))
+                CybershokeWebSync.StartAutoSync(cs.SteamId64, (ok, msg) =>
                 {
-                    if (UpdateManager.UpdateAvailable)
-                    {
-                        UpdateManager.ShowUpdatePrompt = true;
-                    }
-                    else
-                    {
-                        _ = System.Threading.Tasks.Task.Run(async () =>
-                        {
-                            await UpdateManager.CheckForUpdatesAsync(silent: false);
-                            if (UpdateManager.UpdateAvailable)
-                            {
-                                UpdateManager.ShowUpdatePrompt = true;
-                            }
-                            else
-                            {
-                                _importStatusMessage = UpdateManager.StatusMessage;
-                                _importStatusSuccess = true;
-                            }
-                        });
-                    }
-                }
+                    _importStatusMessage = ok ? $"[OK] {msg}" : $"[ERROR] {msg}";
+                    _importStatusSuccess = ok;
+                });
             }
 
-            curY += (int)(34 * scale);
-            string note = "• При обновлении ваши рекорды (user_profile.json) и настройки полностью сохраняются.";
-            Theme.DrawText(note, innerX, curY, 10, Theme.NeonGreen);
+            if (!string.IsNullOrEmpty(_importStatusMessage))
+            {
+                curY += btnH + 6;
+                Color sc = _importStatusSuccess ? Theme.NeonGreen : Theme.NeonRed;
+                Theme.DrawText(_importStatusMessage, x, curY, 10, sc);
+            }
 
-            return h;
+            return curY + btnH;
         }
 
-        private void DrawSectionCard(int x, int y, int width, int height, string title, Color accent)
+        // =========================================================================
+        // SECTION 6: SOFTWARE UPDATES & VERSION
+        // =========================================================================
+        private int DrawUpdateSection(int x, int y, int w, float scale, AppConfig cfg)
         {
-            // Frosted panel card background
-            Raylib.DrawRectangle(x, y, width, height, Theme.BgPanel);
-            Raylib.DrawRectangleLines(x, y, width, height, Theme.Border);
+            int curY = y;
+            int btnH = (int)(32 * scale);
 
-            // Left neon accent indicator bar
-            Raylib.DrawRectangle(x, y, 4, height, accent);
+            Theme.DrawText($"// 6. VERSION & UPDATES ({UpdateManager.CurrentVersion}):", x, curY, 11, Theme.NeonGold);
+            curY += (int)(22 * scale);
 
-            // Card Header line
-            Theme.DrawText(title, x + 18, y + 10, 12, accent);
-            Raylib.DrawLine(x + 14, y + 32, x + width - 14, y + 32, new Color((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)100));
+            string updateBtnLabel = UpdateManager.IsChecking ? "Проверка обновлений..." : "Проверить обновления GitHub";
+            if (Theme.DrawButton(x, curY, w, btnH, updateBtnLabel, false, 11, enabled: !UpdateManager.IsChecking))
+            {
+                _ = UpdateManager.CheckForUpdatesAsync(false);
+            }
+
+            if (!string.IsNullOrEmpty(UpdateManager.StatusMessage))
+            {
+                curY += btnH + 6;
+                Theme.DrawText(UpdateManager.StatusMessage, x, curY, 10, Theme.NeonCyan);
+            }
+
+            return curY + btnH;
         }
     }
 }

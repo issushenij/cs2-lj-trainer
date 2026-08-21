@@ -48,20 +48,19 @@ namespace LJTrainer.UI
                 }
             }
 
-            // Glass Modal Container
-            Theme.DrawGlassPanel(modalX, modalY, modalW, modalH);
+            // TUI glass modal container
+            Theme.DrawTuiFrame(modalX, modalY, modalW, modalH, "CS2 LJ LAB - GUIDE", Theme.Border, 12);
 
-            // Modal Header
-            int headerH = (int)(44 * scale);
+            // Header bar
+            int headerH = (int)(42 * scale);
             Raylib.DrawRectangle(modalX, modalY, modalW, headerH, Theme.BgPanelHeader);
             Raylib.DrawLine(modalX, modalY + headerH, modalX + modalW, modalY + headerH, Theme.Border);
-            Raylib.DrawLine(modalX + 1, modalY + 1, modalX + modalW - 2, modalY + 1, new Color((byte)255, (byte)255, (byte)255, (byte)90));
 
-            Theme.DrawText("CS2 LONG JUMP LAB - ОБУЧЕНИЕ И СПРАВОЧНИК", modalX + 18, modalY + (headerH - Theme.GetScaledFontSize(16)) / 2, 16, Theme.NeonCyan);
+            Theme.DrawText("CS2 LONG JUMP LAB -- GUIDE & REFERENCE", modalX + 16, modalY + (headerH - Theme.GetScaledFontSize(14)) / 2, 14, Theme.NeonCyan);
 
             int closeBtnW = (int)(110 * scale);
-            int closeBtnH = (int)(30 * scale);
-            if (Theme.DrawButton(modalX + modalW - closeBtnW - 12, modalY + (headerH - closeBtnH) / 2, closeBtnW, closeBtnH, "ЗАКРЫТЬ [ESC]", false, 12))
+            int closeBtnH = (int)(28 * scale);
+            if (Theme.DrawButton(modalX + modalW - closeBtnW - 12, modalY + (headerH - closeBtnH) / 2, closeBtnW, closeBtnH, "[CLOSE] ESC", false, 11))
             {
                 IsOpen = false;
             }
@@ -100,7 +99,7 @@ namespace LJTrainer.UI
             int startBtnH = (int)(38 * scale);
             int startBtnX = modalX + modalW - startBtnW - 18;
 
-            if (Theme.DrawButton(startBtnX, bottomY + (bottomH - startBtnH) / 2, startBtnW, startBtnH, "НАЧАТЬ ТРЕНИРОВКУ [Пробел]", true, 13))
+            if (Theme.DrawButton(startBtnX, bottomY + (bottomH - startBtnH) / 2, startBtnW, startBtnH, "[SPACE] START TRAINING", true, 12))
             {
                 IsOpen = false;
             }
@@ -153,13 +152,11 @@ namespace LJTrainer.UI
 
         private void DrawStepCard(int x, int y, int w, int h, string title, string desc, Color accent)
         {
-            Raylib.DrawRectangle(x, y, w, h, new Color((byte)Theme.BgPanel.R, (byte)Theme.BgPanel.G, (byte)Theme.BgPanel.B, (byte)190));
-            Raylib.DrawRectangleLines(x, y, w, h, new Color((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)170));
-            Raylib.DrawLine(x, y, x, y + h, accent);
-            Raylib.DrawLine(x + 1, y, x + 1, y + h, accent);
-
-            Theme.DrawText(title, x + 14, y + 8, 14, accent);
-            Theme.DrawWrappedText(desc, x + 14, y + 30, w - 28, 12, 3, Theme.TextWhite);
+            // TUI box frame with accent-colored title
+            Theme.DrawTuiFrame(x, y, w, h, title, accent, 11);
+            // Content text below the border row
+            int charH = Theme.GetScaledFontSize(11);
+            Theme.DrawWrappedText(desc, x + 14, y + charH + 6, w - 28, 12, 3, Theme.TextWhite);
         }
 
         private void DrawGlossaryTab(int cx, int cy, int cw, int availableH, float scale)
@@ -208,13 +205,9 @@ namespace LJTrainer.UI
 
         private void DrawTermCard(int x, int y, int w, int h, string term, string meaning, Color accent)
         {
-            Raylib.DrawRectangle(x, y, w, h, new Color((byte)Theme.BgPanel.R, (byte)Theme.BgPanel.G, (byte)Theme.BgPanel.B, (byte)190));
-            Raylib.DrawRectangleLines(x, y, w, h, new Color((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)170));
-            Raylib.DrawLine(x, y, x, y + h, accent);
-            Raylib.DrawLine(x + 1, y, x + 1, y + h, accent);
-
-            Theme.DrawText(term, x + 12, y + 6, 13, accent);
-            Theme.DrawWrappedText(meaning, x + 12, y + 26, w - 24, 11, 3, Theme.TextWhite);
+            Theme.DrawTuiFrame(x, y, w, h, term, accent, 10);
+            int charH = Theme.GetScaledFontSize(10);
+            Theme.DrawWrappedText(meaning, x + 12, y + charH + 5, w - 24, 11, 3, Theme.TextMuted);
         }
     }
 }

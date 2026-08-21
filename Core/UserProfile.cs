@@ -50,6 +50,10 @@ namespace LJTrainer.Core
         // History of training blocks for progression graph
         public List<ProfileSessionRecord> RecentSessions { get; set; } = new();
 
+        // Cached CS2 console log stream position
+        public long LastLogPosition { get; set; } = 0;
+        public long LastLogLength { get; set; } = 0;
+
         private int _sessionAccumStrafes = 0;
         private float _sessionAccumSync = 0.0f;
         private float _sessionAccumAngle = 0.0f;
@@ -67,6 +71,31 @@ namespace LJTrainer.Core
                         Instance = loaded;
                     }
                 }
+
+                // Auto-detect local Steam PersonaName & SteamID if not set or default
+                if (string.IsNullOrEmpty(Instance.Cybershoke.CybershokeNick) || 
+                    Instance.Cybershoke.CybershokeNick == "Player" || 
+                    Instance.Cybershoke.CybershokeNick == "CS2_Player")
+                {
+                    string? detectedSteamNick = CS2ConfigImporter.DetectLocalSteamPersonaName();
+                    if (!string.IsNullOrEmpty(detectedSteamNick))
+                    {
+                        Instance.Cybershoke.CybershokeNick = detectedSteamNick;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(Instance.Cybershoke.SteamId64))
+                {
+                    string? detectedSid = CS2ConfigImporter.DetectLocalSteamId64(Instance.Cybershoke.CybershokeNick);
+                    if (!string.IsNullOrEmpty(detectedSid))
+                    {
+                        Instance.Cybershoke.SteamId64 = detectedSid;
+                    }
+                }
+
+                // Reconstruct live recent jump buffer from persistent storage
+                Instance.Cybershoke.ReconstructRecentJumps();
+                CS2ConsoleWatcher.InitializeFromProfile(Instance.Cybershoke);
 
                 if (Instance.Cybershoke.CompletedMaps == null || Instance.Cybershoke.CompletedMaps.Count == 0)
                 {

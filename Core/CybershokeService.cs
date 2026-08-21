@@ -165,6 +165,25 @@ namespace LJTrainer.Core
         [JsonIgnore] public double LastPBTime { get; set; } = 0;
         [JsonIgnore] public float PersonalBestLjDist => GetOrCreate("Long Jump").PBDist;
 
+        public void ReconstructRecentJumps()
+        {
+            RecentJumps.Clear();
+            var all = new List<CS2ConsoleEvent>();
+            foreach (var kvp in JumpHistoryPerType)
+            {
+                if (kvp.Value != null)
+                {
+                    if (kvp.Value.Count > 100)
+                    {
+                        kvp.Value.RemoveRange(100, kvp.Value.Count - 100);
+                    }
+                    all.AddRange(kvp.Value);
+                }
+            }
+            all.Sort((a, b) => b.Timestamp.CompareTo(a.Timestamp));
+            RecentJumps.AddRange(all.Take(500));
+        }
+
         public List<CS2ConsoleEvent> GetJumpsForType(string type)
         {
             string norm = NormalizeJumpType(type);
@@ -224,14 +243,14 @@ namespace LJTrainer.Core
             bool isQuality = evt.Distance >= threshold && (evt.Strafes >= 2 || type == "Ladder Jump");
             evt.IsQualityJump = isQuality;
 
-            // 1. Add to live recent stream
+            // 1. Add to live recent stream (up to 500 jumps across all types)
             RecentJumps.Insert(0, evt);
-            if (RecentJumps.Count > 1000) RecentJumps.RemoveAt(RecentJumps.Count - 1);
+            if (RecentJumps.Count > 500) RecentJumps.RemoveAt(RecentJumps.Count - 1);
 
-            // 2. Add to persistent per-type history (minimum 150 jumps per type stored)
+            // 2. Add to persistent per-type history (100 jumps per type stored)
             var typeHistory = GetJumpsForType(type);
             typeHistory.Insert(0, evt);
-            if (typeHistory.Count > 200) typeHistory.RemoveAt(typeHistory.Count - 1);
+            if (typeHistory.Count > 100) typeHistory.RemoveAt(typeHistory.Count - 1);
 
             // Update running averages only for quality jumps (ignore filler/navigation jumps)
             if (isQuality)
@@ -398,11 +417,22 @@ namespace LJTrainer.Core
             }
 
             // 2. Extract Nickname
-            var mNick = System.Text.RegularExpressions.Regex.Match(text, @"(?:\\n|\r?\n|^)([a-zA-Z0-9_\-\.]{2,32})\s*(?:\\n|\r?\n)\s*(?:Позиция|Position|Онлайн|Online|Offline)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var mNick = System.Text.RegularExpressions.Regex.Match(text, @"(?:\\n|\r?\n|^)([a-zA-Z0-9_\-\.\[\]]{2,32})\s*(?:\\n|\r?\n)\s*(?:Позиция|Position|Онлайн|Online|Offline)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!mNick.Success)
+            {
+                mNick = System.Text.RegularExpressions.Regex.Match(text, @"([a-zA-Z0-9_\-\.\[\]]{2,32})\s*[-|]\s*CYBERSHOKE", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+            if (!mNick.Success)
+            {
+                mNick = System.Text.RegularExpressions.Regex.Match(text, @"(?:Профиль игрока|Player profile)\s*:?\s*([a-zA-Z0-9_\-\.\[\]]{2,32})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+
             if (mNick.Success && !string.IsNullOrWhiteSpace(mNick.Groups[1].Value))
             {
                 string nk = mNick.Groups[1].Value.Trim();
-                if (!nk.Equals("CS2", StringComparison.OrdinalIgnoreCase) && !nk.Equals("STEAM", StringComparison.OrdinalIgnoreCase))
+                if (!nk.Equals("CS2", StringComparison.OrdinalIgnoreCase) && 
+                    !nk.Equals("STEAM", StringComparison.OrdinalIgnoreCase) &&
+                    !nk.Equals("CYBERSHOKE", StringComparison.OrdinalIgnoreCase))
                 {
                     CybershokeNick = nk;
                     modified = true;

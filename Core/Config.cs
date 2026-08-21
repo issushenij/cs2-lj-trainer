@@ -19,9 +19,10 @@ namespace LJTrainer.Core
 
     public enum ColorTheme
     {
-        CyberNeon,       // Classic Ice Cyan & Emerald & Gold
-        OLEDMonochrome,  // Pure Black, Crisp White & Minimal Silver
-        AmberSunset      // Warm Gold, Fiery Orange & Violet
+        PhosphorMatrix,  // Terminal Matrix: Pure Phosphor Green (#00FF66) on Deep Carbon
+        CyberCLI,        // Cyberpunk Workstation: Crisp Ice Cyan (#00E5FF) on Dark Graphite
+        AmberCRT,        // Vintage Amber Terminal: Warm Amber (#FFB000) on Obsidian
+        OLEDMonochrome   // Pure Black, Crisp White & Minimal Silver
     }
 
     public enum TrainerMode
@@ -86,15 +87,17 @@ namespace LJTrainer.Core
         public float MaxPreSpeed => Mode == PhysicsMode.CKZ ? 276.0f : 250.0f;
 
         // Visual & UI/UX Settings
-        public ColorTheme Theme { get; set; } = ColorTheme.CyberNeon;
+        public ColorTheme Theme { get; set; } = ColorTheme.CyberCLI;
         public TrainerMode ModeType { get; set; } = TrainerMode.StrafePractice;
         public bool MetronomeEnabled { get; set; } = false;
+        public bool ShowCrtScanlines { get; set; } = false; // Authentic subtle terminal scanlines
         public ReversalTriggerMode FreestyleTrigger { get; set; } = ReversalTriggerMode.ByMouseMovement;
         public float UiScale { get; set; } = 1.50f; // 1.0f (Normal), 1.25f (Large), 1.50f (Extra Large - Default)
         public bool ShowTooltips { get; set; } = true;
         public bool ZenModeAutoFade { get; set; } = true;
         public bool ShowWelcomeGuideOnStartup { get; set; } = false;
         public bool MinimizeToTrayOnClose { get; set; } = true; // Minimize to system tray on [X] instead of closing
+        public bool AutoCheckUpdates { get; set; } = true; // Automatically check for updates on startup
 
         // Sound Settings
         public float MasterVolume { get; set; } = 0.75f;

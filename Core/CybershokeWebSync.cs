@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -41,19 +41,17 @@ namespace LJTrainer.Core
 
             IsSyncing = true;
             LastSyncSuccess = false;
-            SyncStatusMessage = "Запуск Chromium Edge WebView2...";
+            SyncStatusMessage = "Подключение к Cybershoke.net...";
             SyncStartTime = Raylib.GetTime();
 
-            _syncThread = new Thread(() => RunSyncForm(targetSid, onCompleted));
+            _syncThread = new Thread(() => RunSync(targetSid, onCompleted));
             _syncThread.SetApartmentState(ApartmentState.STA);
             _syncThread.IsBackground = true;
             _syncThread.Start();
         }
 
-        private static void RunSyncForm(string steamId, Action<bool, string>? onCompleted)
+        private static void RunSync(string steamId, Action<bool, string>? onCompleted)
         {
-            Form? form = null;
-            WebView2? webView = null;
             bool completed = false;
 
             void Finish(bool success, string msg)
@@ -65,20 +63,21 @@ namespace LJTrainer.Core
                 LastSyncSuccess = success;
                 SyncStatusMessage = msg;
 
-                try
+                if (success)
                 {
-                    if (form != null && !form.IsDisposed)
-                    {
-                        if (form.InvokeRequired)
-                            form.Invoke(new Action(() => form.Close()));
-                        else
-                            form.Close();
-                    }
+                    UserProfile.Instance.Cybershoke.IsLinked = true;
+                    UserProfile.Instance.Cybershoke.LastSyncTime = DateTime.Now;
+                    UserProfile.Save();
                 }
-                catch { }
 
                 onCompleted?.Invoke(success, msg);
             }
+
+            // 1. Try Headless Chromium Edge WebView2 on STA UI Thread
+            Form? form = null;
+            WebView2? webView = null;
+            System.Windows.Forms.Timer? readTimer = null;
+            System.Windows.Forms.Timer? timeoutTimer = null;
 
             try
             {
@@ -116,14 +115,17 @@ namespace LJTrainer.Core
                         wv.Settings.IsScriptEnabled = true;
                         wv.Settings.AreDefaultScriptDialogsEnabled = false;
 
-                        SyncStatusMessage = "Подключение к Cybershoke.net...";
+                        SyncStatusMessage = "Загрузка профиля Cybershoke...";
 
                         webView.NavigationCompleted += (s2, e2) =>
                         {
-                            SyncStatusMessage = "Страница загружена, чтение данных...";
+                            SyncStatusMessage = "Чтение данных рекордов...";
 
-                            Task.Delay(3000).ContinueWith(async _ =>
+                            // UI Thread Timer: avoids background thread cross-apartment errors
+                            readTimer = new System.Windows.Forms.Timer { Interval = 2500 };
+                            readTimer.Tick += async (ts, te) =>
                             {
+                                readTimer.Stop();
                                 try
                                 {
                                     string rawJson = await webView.ExecuteScriptAsync("document.body.innerText");
@@ -134,47 +136,93 @@ namespace LJTrainer.Core
                                     }
                                     catch { }
 
-                                    if (!string.IsNullOrWhiteSpace(text))
+                                    if (!string.IsNullOrWhiteSpace(text) && text.Length > 30)
                                     {
                                         var (ok, summary) = UserProfile.Instance.Cybershoke.ImportFromText(text);
-                                        Finish(true, ok ? summary : "Данные получены");
+                                        Finish(true, ok ? summary : "Данные успешно синхронизированы");
                                     }
                                     else
                                     {
-                                        Finish(false, "Пустой ответ со страницы");
+                                        // Fallback to HTTP scraper
+                                        await FallbackHttpSync(steamId, Finish);
                                     }
                                 }
-                                catch (Exception ex)
+                                catch
                                 {
-                                    Finish(false, $"Ошибка скрипта: {ex.Message}");
+                                    // Fallback to HTTP scraper
+                                    await FallbackHttpSync(steamId, Finish);
                                 }
-                            });
+                                finally
+                                {
+                                    try { form?.Close(); } catch { }
+                                }
+                            };
+                            readTimer.Start();
                         };
 
                         string profileUrl = $"https://cybershoke.net/ru/cs2/leaderboard/kz/maps/{steamId}";
                         wv.Navigate(profileUrl);
 
-                        // 15 sec timeout fallback
-                        _ = Task.Delay(15000).ContinueWith(_ =>
+                        // 12s overall timeout
+                        timeoutTimer = new System.Windows.Forms.Timer { Interval = 12000 };
+                        timeoutTimer.Tick += async (ts, te) =>
                         {
+                            timeoutTimer.Stop();
                             if (!completed)
                             {
-                                Finish(false, "Таймаут (15 сек)");
+                                await FallbackHttpSync(steamId, Finish);
+                                try { form?.Close(); } catch { }
                             }
-                        });
-
+                        };
+                        timeoutTimer.Start();
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        Finish(false, $"Ошибка WebView2: {ex.Message}");
+                        // WebView2 runtime missing or failed: fallback to direct HTTP
+                        await FallbackHttpSync(steamId, Finish);
+                        try { form?.Close(); } catch { }
                     }
                 };
 
                 Application.Run(form);
             }
+            catch
+            {
+                // Fallback direct HTTP
+                _ = FallbackHttpSync(steamId, Finish);
+            }
+        }
+
+        private static async Task FallbackHttpSync(string steamId, Action<bool, string> finish)
+        {
+            try
+            {
+                SyncStatusMessage = "HTTP запрос к Cybershoke...";
+                using var client = new HttpClient();
+                client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+                client.DefaultRequestHeaders.Add("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+                client.Timeout = TimeSpan.FromSeconds(8);
+
+                string url = $"https://cybershoke.net/ru/cs2/leaderboard/kz/maps/{steamId}";
+                var response = await client.GetAsync(url);
+                if (response.IsSuccessStatusCode)
+                {
+                    string html = await response.Content.ReadAsStringAsync();
+                    // Strip basic HTML tags for text parser
+                    string cleanText = Regex.Replace(html, "<.*?>", " ");
+                    cleanText = System.Net.WebUtility.HtmlDecode(cleanText);
+
+                    var (ok, summary) = UserProfile.Instance.Cybershoke.ImportFromText(cleanText);
+                    finish(ok, ok ? summary : "Данные получены");
+                }
+                else
+                {
+                    finish(false, $"Cybershoke HTTP статус: {(int)response.StatusCode}");
+                }
+            }
             catch (Exception ex)
             {
-                Finish(false, $"Сбой: {ex.Message}");
+                finish(false, $"Ошибка синхронизации: {ex.Message}");
             }
         }
     }

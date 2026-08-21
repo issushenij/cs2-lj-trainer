@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Raylib_cs;
@@ -34,10 +35,10 @@ namespace LJTrainer.Core
             try
             {
                 var contextMenu = new ContextMenuStrip();
-                var itemOpen = new ToolStripMenuItem("🎮 Открыть LJ Trainer", null, (s, e) => RestoreFromTray());
-                var itemSettings = new ToolStripMenuItem("⚙️ Настройки", null, (s, e) => { RestoreFromTray(); _onOpenSettings?.Invoke(); });
+                var itemOpen = new ToolStripMenuItem("Открыть LJ Trainer", null, (s, e) => RestoreFromTray());
+                var itemSettings = new ToolStripMenuItem("Настройки", null, (s, e) => { RestoreFromTray(); _onOpenSettings?.Invoke(); });
                 var itemSep = new ToolStripSeparator();
-                var itemExit = new ToolStripMenuItem("❌ Выход из приложения", null, (s, e) => { ExitApplication(); });
+                var itemExit = new ToolStripMenuItem("Выход", null, (s, e) => { ExitApplication(); });
 
                 itemOpen.Font = new System.Drawing.Font(itemOpen.Font, System.Drawing.FontStyle.Bold);
 
@@ -123,42 +124,51 @@ namespace LJTrainer.Core
 
         public static System.Drawing.Icon CreateCustomLJIcon()
         {
-            string logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "icons", "lj_logo_white.svg");
-            if (!System.IO.File.Exists(logoPath)) logoPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "icons", "lj_logo_white.svg");
-            if (!System.IO.File.Exists(logoPath)) logoPath = @"c:\Users\matas\Downloads\lj\lj logo.svg";
+            // 1. Try extracting icon from executable
+            try
+            {
+                string? exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                {
+                    var extIcon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+                    if (extIcon != null) return extIcon;
+                }
+            }
+            catch { }
 
-            using var bmp = new System.Drawing.Bitmap(64, 64);
+            // 2. Try loading app_icon.ico
+            try
+            {
+                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_icon.ico");
+                if (File.Exists(icoPath))
+                {
+                    return new System.Drawing.Icon(icoPath);
+                }
+            }
+            catch { }
+
+            // 3. Crisp Programmatic Tray Icon (32x32)
+            using var bmp = new System.Drawing.Bitmap(32, 32);
             using (var g = System.Drawing.Graphics.FromImage(bmp))
             {
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.Clear(System.Drawing.Color.Transparent);
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                // If SVG exists, rasterize onto tray icon with full transparency
-                if (System.IO.File.Exists(logoPath))
-                {
-                    try
-                    {
-                        var svg = new Svg.Skia.SKSvg();
-                        using var stream = System.IO.File.OpenRead(logoPath);
-                        var skPic = svg.Load(stream);
-                        if (skPic != null)
-                        {
-                            using var skBmp = new SkiaSharp.SKBitmap(60, 56, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul);
-                            using var skCanvas = new SkiaSharp.SKCanvas(skBmp);
-                            skCanvas.Clear(SkiaSharp.SKColors.Transparent);
-                            skCanvas.Scale(60f / skPic.CullRect.Width, 56f / skPic.CullRect.Height);
-                            using var paint = new SkiaSharp.SKPaint { ColorFilter = SkiaSharp.SKColorFilter.CreateBlendMode(SkiaSharp.SKColors.White, SkiaSharp.SKBlendMode.SrcIn) };
-                            skCanvas.DrawPicture(skPic, paint);
-                            skCanvas.Flush();
+                // Dark rounded badge background
+                using var brushBg = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(14, 18, 24));
+                g.FillRectangle(brushBg, 0, 0, 32, 32);
 
-                            using var ms = new System.IO.MemoryStream();
-                            skBmp.Encode(ms, SkiaSharp.SKEncodedImageFormat.Png, 100);
-                            using var iconBmp = new System.Drawing.Bitmap(ms);
-                            g.DrawImage(iconBmp, 2, 4, 60, 56);
-                        }
-                    }
-                    catch { }
-                }
+                // Neon orange border
+                using var penBorder = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 120, 0), 2);
+                g.DrawRectangle(penBorder, 1, 1, 30, 30);
+
+                // Cyan & Orange text "LJ"
+                using var font = new System.Drawing.Font("Arial", 11, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
+                using var brushL = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 255, 255));
+                using var brushJ = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 140, 0));
+
+                g.DrawString("L", font, brushL, 4, 9);
+                g.DrawString("J", font, brushJ, 15, 9);
             }
 
             IntPtr hIcon = bmp.GetHicon();
@@ -169,44 +179,30 @@ namespace LJTrainer.Core
         {
             try
             {
-                string logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "icons", "lj_logo_white.svg");
-                if (!System.IO.File.Exists(logoPath)) logoPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Assets", "icons", "lj_logo_white.svg");
-                if (!System.IO.File.Exists(logoPath)) logoPath = @"c:\Users\matas\Downloads\lj\lj logo.svg";
-
-                using var bmp = new System.Drawing.Bitmap(256, 256);
-                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                string iconTempPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_icon.png");
+                if (!File.Exists(iconTempPath))
                 {
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    g.Clear(System.Drawing.Color.Transparent);
-
-                    if (System.IO.File.Exists(logoPath))
+                    using var bmp = new System.Drawing.Bitmap(128, 128);
+                    using (var g = System.Drawing.Graphics.FromImage(bmp))
                     {
-                        var svg = new Svg.Skia.SKSvg();
-                        using var stream = System.IO.File.OpenRead(logoPath);
-                        var skPic = svg.Load(stream);
-                        if (skPic != null)
-                        {
-                            using var skBmp = new SkiaSharp.SKBitmap(240, 220, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Premul);
-                            using var skCanvas = new SkiaSharp.SKCanvas(skBmp);
-                            skCanvas.Clear(SkiaSharp.SKColors.Transparent);
-                            skCanvas.Scale(240f / skPic.CullRect.Width, 220f / skPic.CullRect.Height);
-                            using var paint = new SkiaSharp.SKPaint { ColorFilter = SkiaSharp.SKColorFilter.CreateBlendMode(SkiaSharp.SKColors.White, SkiaSharp.SKBlendMode.SrcIn) };
-                            skCanvas.DrawPicture(skPic, paint);
-                            skCanvas.Flush();
+                        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                        using var brushBg = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(14, 18, 24));
+                        g.FillRectangle(brushBg, 0, 0, 128, 128);
 
-                            using var ms = new System.IO.MemoryStream();
-                            skBmp.Encode(ms, SkiaSharp.SKEncodedImageFormat.Png, 100);
-                            using var iconBmp = new System.Drawing.Bitmap(ms);
-                            g.DrawImage(iconBmp, 8, 18, 240, 220);
-                        }
+                        using var penBorder = new System.Drawing.Pen(System.Drawing.Color.FromArgb(255, 120, 0), 6);
+                        g.DrawRectangle(penBorder, 3, 3, 122, 122);
+
+                        using var font = new System.Drawing.Font("Arial", 48, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
+                        using var brushL = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 255, 255));
+                        using var brushJ = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 140, 0));
+
+                        g.DrawString("L", font, brushL, 16, 36);
+                        g.DrawString("J", font, brushJ, 60, 36);
                     }
+                    bmp.Save(iconTempPath, System.Drawing.Imaging.ImageFormat.Png);
                 }
 
-                // Convert Bitmap to Raylib Image and set as Window Icon
-                string iconTempPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app_icon.png");
-                bmp.Save(iconTempPath, System.Drawing.Imaging.ImageFormat.Png);
-                
-                if (System.IO.File.Exists(iconTempPath))
+                if (File.Exists(iconTempPath))
                 {
                     var rayImg = Raylib.LoadImage(iconTempPath);
                     Raylib.SetWindowIcon(rayImg);

@@ -10,10 +10,10 @@
     <ApplicationTitle>CS2 Long Jump &amp; Sync Lab</ApplicationTitle>
     <ApplicationIcon>app_icon.ico</ApplicationIcon>
     <RootNamespace>LJTrainer</RootNamespace>
-    <Version>1.1.2</Version>
-    <AssemblyVersion>1.1.2.0</AssemblyVersion>
-    <FileVersion>1.1.2.0</FileVersion>
-    <InformationalVersion>v1.1.2</InformationalVersion>
+    <Version>1.1.4</Version>
+    <AssemblyVersion>1.1.4.0</AssemblyVersion>
+    <FileVersion>1.1.4.0</FileVersion>
+    <InformationalVersion>v1.1.4</InformationalVersion>
   </PropertyGroup>
 
 
@@ -25,6 +25,12 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
     <PackageReference Include="Raylib-cs" Version="8.0.0" />
     <PackageReference Include="Svg.Skia" Version="5.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="assets\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 

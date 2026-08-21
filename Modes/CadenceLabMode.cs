@@ -79,6 +79,9 @@ namespace LJTrainer.Modes
         private Color _reversalFeedbackCol = Theme.NeonGreen;
         private float _reversalFeedbackAnim = 0.0f;
 
+        // Pending tooltip for top-most deferred render
+        private (int x, int y, string title, string desc, string bench)? _pendingTooltip = null;
+
         // Real-Time Intelligent Strafe Sync Coach / Advisor State (No flickering, rolling window analytics)
         private string _coachAdviceCurrent = "Выполните 3-5 стрейфов для калибровки и анализа вашей синхронизации...";
         private string _coachAdviceTarget = "";
@@ -818,6 +821,12 @@ namespace LJTrainer.Modes
             // 11. Intelligent Live Sync Coach / Advisor Pill (At Bottom of Screen)
             DrawLiveCoachPill(screenWidth, screenHeight);
 
+            // 12. Final Layer: Tooltip on top of all HUD layers & text (No background overlap)
+            if (_pendingTooltip.HasValue)
+            {
+                Theme.DrawTooltip(_pendingTooltip.Value.x, _pendingTooltip.Value.y, _pendingTooltip.Value.title, _pendingTooltip.Value.desc, _pendingTooltip.Value.bench);
+                _pendingTooltip = null;
+            }
         }
 
         private void DrawLiveCoachPill(int screenWidth, int screenHeight)
@@ -825,48 +834,47 @@ namespace LJTrainer.Modes
             var cfg = AppConfig.Instance;
             float scale = cfg.UiScale;
 
-            int pillW = Math.Min((int)(940 * scale), screenWidth - 36);
-            int pillH = (int)(34 * scale);
+            int pillW = Math.Min((int)(960 * scale), screenWidth - 36);
+            int pillH = (int)(32 * scale);
             int pillX = (screenWidth - pillW) / 2;
-            int pillY = screenHeight - (int)(44 * scale);
+            int pillY = screenHeight - (int)(30 * scale) - pillH;
 
-            // Frosted Glass Coach Pill Container
-            Theme.DrawGlassPanel(pillX, pillY, pillW, pillH);
+            // Technical CLI prompt box
+            Theme.DrawTechnicalBox(pillX, pillY, pillW, pillH, null, Theme.Border);
 
             byte alpha = (byte)Math.Clamp(255 * _coachFadeAlpha, 0, 255);
             Color textCol = new((byte)_coachAdviceColor.R, (byte)_coachAdviceColor.G, (byte)_coachAdviceColor.B, alpha);
-            Color badgeCol = new((byte)Theme.NeonCyan.R, (byte)Theme.NeonCyan.G, (byte)Theme.NeonCyan.B, alpha);
+            Color promptCol = new((byte)Theme.NeonCyan.R, (byte)Theme.NeonCyan.G, (byte)Theme.NeonCyan.B, alpha);
 
-            // Icon / Badge Prefix
-            string badge = "COACH:";
-            int badgeW = Theme.MeasureText(badge, 12);
-            Theme.DrawText(badge, pillX + 14, pillY + (pillH - Theme.GetScaledFontSize(12)) / 2, 12, badgeCol);
+            // Prompt prefix
+            string prompt = "> COACH //";
+            int promptW = Theme.MeasureText(prompt, 11);
+            Theme.DrawText(prompt, pillX + 12, pillY + (pillH - Theme.GetScaledFontSize(11)) / 2, 11, promptCol);
 
-            // Smooth advice text (smoothly crossfades, never flickers)
-            Theme.DrawText(_coachAdviceCurrent, pillX + 14 + badgeW + 8, pillY + (pillH - Theme.GetScaledFontSize(12)) / 2, 12, textCol);
+            // Advice stream text
+            Theme.DrawText(_coachAdviceCurrent, pillX + 12 + promptW + 8, pillY + (pillH - Theme.GetScaledFontSize(11)) / 2, 11, textCol);
         }
 
         private void DrawBackgroundGrid(int screenWidth, int screenHeight)
         {
-            int gridStep = 60;
-            Color lineCol = new((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)45);
+            int gridStep = 48;
             int cx = screenWidth / 2;
+            int cy = screenHeight / 2;
 
-            // Vertical grid lines directly centered on screen center:
-            for (int x = cx; x < screenWidth; x += gridStep)
+            // Subtle dot matrix grid (OpenCode / Amiga terminal style)
+            Color dotCol = new(35, 35, 35, 120);
+            for (int x = cx % gridStep; x < screenWidth; x += gridStep)
             {
-                Raylib.DrawLine(x, 46, x, screenHeight, lineCol);
-            }
-            for (int x = cx - gridStep; x >= 0; x -= gridStep)
-            {
-                Raylib.DrawLine(x, 46, x, screenHeight, lineCol);
+                for (int y = 46 + (cy % gridStep); y < screenHeight - 30; y += gridStep)
+                {
+                    Raylib.DrawRectangle(x, y, 1, 1, dotCol);
+                }
             }
 
-            // Horizontal grid lines:
-            for (int y = 46; y < screenHeight; y += gridStep)
-            {
-                Raylib.DrawLine(0, y, screenWidth, y, lineCol);
-            }
+            // Technical center axis crosshairs
+            Color axisCol = new(45, 45, 45, 140);
+            Raylib.DrawLine(cx - 20, cy, cx + 20, cy, axisCol);
+            Raylib.DrawLine(cx, cy - 20, cx, cy + 20, axisCol);
         }
 
         private void DrawSmoothnessTrail()
@@ -879,8 +887,8 @@ namespace LJTrainer.Modes
                 var p1 = _trail[i + 1];
 
                 float progress = (float)i / _trail.Count;
-                float thickness = Math.Max(1.5f, 6.5f * (1.0f - progress));
-                byte alpha = (byte)Math.Clamp(235 * (1.0f - progress * 0.9f), 20, 245);
+                float thickness = Math.Max(1.0f, 3.5f * (1.0f - progress));
+                byte alpha = (byte)Math.Clamp(235 * (1.0f - progress * 0.85f), 30, 245);
 
                 Color col = new(p0.Col.R, p0.Col.G, p0.Col.B, alpha);
                 Raylib.DrawLineEx(p0.Pos, p1.Pos, thickness, col);
@@ -892,7 +900,7 @@ namespace LJTrainer.Modes
             foreach (var p in _particles)
             {
                 byte alpha = (byte)Math.Clamp(255 * p.Life, 0, 255);
-                Raylib.DrawCircle((int)p.Pos.X, (int)p.Pos.Y, 2.5f, new Color(p.Col.R, p.Col.G, p.Col.B, alpha));
+                Raylib.DrawRectangle((int)p.Pos.X, (int)p.Pos.Y, 2, 2, new Color(p.Col.R, p.Col.G, p.Col.B, alpha));
             }
         }
 
@@ -902,24 +910,29 @@ namespace LJTrainer.Modes
             bool hasMotion = MathF.Abs(inp.DeltaYawDegrees) > 0.01f;
             Color ballCol = hasMotion ? (_trail.Count > 0 ? _trail[0].Col : Theme.NeonCyan) : Theme.TextDim;
 
-            // Metronome Pulse halo
-            float pulseRadius = 14.0f + _metroPulseAnim * 12.0f;
-            Raylib.DrawCircleLines((int)_ballPos.X, (int)_ballPos.Y, pulseRadius, new Color(ballCol.R, ballCol.G, ballCol.B, (byte)(180 * _metroPulseAnim)));
+            int bx = (int)_ballPos.X;
+            int by = (int)_ballPos.Y;
 
-            // Outer ring
-            Raylib.DrawCircle((int)_ballPos.X, (int)_ballPos.Y, 14, new Color(ballCol.R, ballCol.G, ballCol.B, (byte)50));
-            Raylib.DrawCircleLines((int)_ballPos.X, (int)_ballPos.Y, 14, ballCol);
+            // Metronome Pulse wireframe box
+            if (_metroPulseAnim > 0.05f)
+            {
+                int pSize = (int)(16 + _metroPulseAnim * 14.0f);
+                Raylib.DrawRectangleLines(bx - pSize / 2, by - pSize / 2, pSize, pSize, new Color(ballCol.R, ballCol.G, ballCol.B, (byte)(160 * _metroPulseAnim)));
+            }
 
-            // Inner solid core
-            Raylib.DrawCircle((int)_ballPos.X, (int)_ballPos.Y, 7, ballCol);
-            Raylib.DrawCircle((int)_ballPos.X, (int)_ballPos.Y, 3, Theme.TextWhite);
+            // Technical Wireframe Crosshair Target Reticle
+            int rSize = 10;
+            Raylib.DrawRectangleLines(bx - rSize, by - rSize, rSize * 2, rSize * 2, new Color(ballCol.R, ballCol.G, ballCol.B, (byte)160));
+            Raylib.DrawLine(bx - rSize - 4, by, bx + rSize + 4, by, ballCol);
+            Raylib.DrawLine(bx, by - rSize - 4, bx, by + rSize + 4, ballCol);
+            Raylib.DrawRectangle(bx - 1, by - 1, 3, 3, Theme.TextWhite);
 
-            // Active Key Label next to the ball
-            string keyText = inp.KeyA ? "A" : (inp.KeyD ? "D" : "");
+            // Active Key readout
+            string keyText = inp.KeyA ? "[A]" : (inp.KeyD ? "[D]" : "");
             if (!string.IsNullOrEmpty(keyText))
             {
                 Color kCol = inp.KeyA ? Theme.NeonCyan : Theme.NeonOrange;
-                Raylib.DrawText(keyText, (int)_ballPos.X + 18, (int)_ballPos.Y - 8, 16, kCol);
+                Theme.DrawText(keyText, bx + 16, by - 8, 12, kCol);
             }
         }
 
@@ -934,7 +947,7 @@ namespace LJTrainer.Modes
             bool isOptimal = curAngle >= 27.0f && curAngle <= 38.0f;
             bool isOver = curAngle > 39.0f;
 
-            // Dynamic Target Box (anchored relative to current strafe starting reversal point):
+            // Dynamic Target Corridor (anchored relative to current strafe reversal point)
             if (_lastReversalBallX > 10.0f && _currentStrafeIsRight != null)
             {
                 float dirSign = _currentStrafeIsRight == true ? 1.0f : -1.0f;
@@ -944,169 +957,179 @@ namespace LJTrainer.Modes
                 float maxX = MathF.Max(dyn30, dyn35);
                 int boxW = (int)MathF.Max(16.0f, maxX - minX);
 
-                // Stable fixed vertical height (does NOT jump or follow mouse up/down)
-                int boxY = (int)(screenHeight * 0.26f);
-                int boxH = (int)(screenHeight * 0.26f);
+                int boxY = (int)(screenHeight * 0.24f);
+                int boxH = (int)(screenHeight * 0.28f);
 
                 Color dynCol = isOptimal ? Theme.NeonGreen : (isOver ? Theme.NeonRed : Theme.NeonGold);
-                byte fillAlpha = isOptimal ? (byte)45 : (byte)22;
-                byte lineAlpha = isOptimal ? (byte)230 : (byte)160;
 
-                // Glowing target corridor box
-                Raylib.DrawRectangle((int)minX, boxY, boxW, boxH, new Color((byte)dynCol.R, (byte)dynCol.G, (byte)dynCol.B, fillAlpha));
-                Raylib.DrawRectangleLines((int)minX, boxY, boxW, boxH, new Color((byte)dynCol.R, (byte)dynCol.G, (byte)dynCol.B, lineAlpha));
+                // Wireframe corridor with corner tick marks
+                Raylib.DrawRectangleLines((int)minX, boxY, boxW, boxH, dynCol);
+                Raylib.DrawLine((int)minX, boxY, (int)minX, boxY + boxH, dynCol);
+                Raylib.DrawLine((int)(minX + boxW), boxY, (int)(minX + boxW), boxY + boxH, dynCol);
 
-                // Target label without any broken unicode characters
-                string dynLabel = _currentStrafeIsRight == true ? "ЦЕЛЬ: 30-35 deg >>" : "<< ЦЕЛЬ: 30-35 deg";
-                int dlw = Theme.MeasureText(dynLabel, 12);
-                Theme.DrawText(dynLabel, (int)(minX + boxW / 2 - dlw / 2), boxY - (int)(18 * scale), 12, dynCol);
+                // Vertical dashed center
+                int midX = (int)(minX + boxW / 2);
+                for (int y = boxY + 4; y < boxY + boxH - 4; y += 8)
+                {
+                    Raylib.DrawLine(midX, y, midX, y + 4, new Color(dynCol.R, dynCol.G, dynCol.B, (byte)100));
+                }
+
+                // Target label in monospace bracket format
+                string dynLabel = _currentStrafeIsRight == true ? "[ TARGET: 30-35 deg >> ]" : "[ << TARGET: 30-35 deg ]";
+                int dlw = Theme.MeasureText(dynLabel, 11);
+                Theme.DrawText(dynLabel, (int)(minX + boxW / 2 - dlw / 2), boxY - (int)(16 * scale), 11, dynCol);
             }
         }
 
         private void DrawEdgeGlowVignettes(int screenWidth, int screenHeight)
         {
-            int edgeW = (int)(screenWidth * 0.42f); // Extended wide subtle gradient (~42% screen)
-
-            // 1. Left Screen Edge Vignette
-            if (_leftEdgeGlowAlpha > 0.01f)
+            // Subtle 1px technical edge indicator lines when turning
+            if (_leftEdgeGlowAlpha > 0.05f)
             {
-                byte a = (byte)Math.Clamp(28 * _leftEdgeGlowAlpha, 0, 255); // Super soft, subtle, barely noticeable
-                Color c1 = new(_leftEdgeGlowColor.R, _leftEdgeGlowColor.G, _leftEdgeGlowColor.B, a);
-                Color c2 = new(_leftEdgeGlowColor.R, _leftEdgeGlowColor.G, _leftEdgeGlowColor.B, (byte)0);
-                Raylib.DrawRectangleGradientH(0, 0, edgeW, screenHeight, c1, c2);
+                byte a = (byte)Math.Clamp(220 * _leftEdgeGlowAlpha, 0, 255);
+                Raylib.DrawRectangle(0, 0, 2, screenHeight, new Color(_leftEdgeGlowColor.R, _leftEdgeGlowColor.G, _leftEdgeGlowColor.B, a));
             }
 
-            // 2. Right Screen Edge Vignette
-            if (_rightEdgeGlowAlpha > 0.01f)
+            if (_rightEdgeGlowAlpha > 0.05f)
             {
-                byte a = (byte)Math.Clamp(28 * _rightEdgeGlowAlpha, 0, 255); // Super soft, subtle, barely noticeable
-                Color c1 = new(_rightEdgeGlowColor.R, _rightEdgeGlowColor.G, _rightEdgeGlowColor.B, (byte)0);
-                Color c2 = new(_rightEdgeGlowColor.R, _rightEdgeGlowColor.G, _rightEdgeGlowColor.B, a);
-                Raylib.DrawRectangleGradientH(screenWidth - edgeW, 0, edgeW, screenHeight, c1, c2);
+                byte a = (byte)Math.Clamp(220 * _rightEdgeGlowAlpha, 0, 255);
+                Raylib.DrawRectangle(screenWidth - 2, 0, 2, screenHeight, new Color(_rightEdgeGlowColor.R, _rightEdgeGlowColor.G, _rightEdgeGlowColor.B, a));
             }
         }
 
         private void DrawPauseBanner(int screenWidth, int screenHeight)
         {
-            var cfg = AppConfig.Instance;
-            float scale = cfg.UiScale;
             int cx = screenWidth / 2;
-            int cy = (int)(screenHeight * 0.50f);
-            string banner = "ТРЕНИРОВКА НА ПАУЗЕ — НАЖМИТЕ ПРОБЕЛ (SPACE) ДЛЯ СТАРТА";
-            int fontSize = 13;
-            int bw = Theme.MeasureText(banner, fontSize);
-            int textH = Theme.GetScaledFontSize(fontSize);
-            int boxH = (int)(textH + 18 * scale);
-            int boxW = bw + (int)(36 * scale);
+            int cy = (int)(screenHeight * 0.46f);
+            
+            float scale = AppConfig.Instance.UiScale;
+            int boxW = (int)(480 * scale);
+            int boxH = (int)(52 * scale);
+            int boxX = cx - boxW / 2;
 
-            Raylib.DrawRectangle(cx - boxW / 2, cy, boxW, boxH, new Color((byte)Theme.BgDark.R, (byte)Theme.BgDark.G, (byte)Theme.BgDark.B, (byte)240));
-            Raylib.DrawRectangleLines(cx - boxW / 2, cy, boxW, boxH, Theme.NeonGold);
-            Theme.DrawText(banner, cx - bw / 2, cy + (boxH - textH) / 2, fontSize, Theme.NeonGold);
+            float timeAnim = (float)Raylib.GetTime();
+            float pulse = MathF.Sin(timeAnim * 5f) * 0.5f + 0.5f;
+
+            // Deep dark backdrop panel with subtle glowing outline
+            Theme.DrawTechnicalBox(boxX, cy, boxW, boxH, "STATUS: STANDBY", Theme.Border, Theme.BgDark, true);
+
+            // Left pulsating beacon indicator
+            int beaconX = boxX + 20;
+            int beaconY = cy + boxH / 2;
+            Raylib.DrawCircle(beaconX, beaconY, 6f + pulse * 2f, new Color(Theme.NeonOrange.R, Theme.NeonOrange.G, Theme.NeonOrange.B, (byte)(40 + pulse * 60)));
+            Raylib.DrawCircle(beaconX, beaconY, 4.5f, Theme.NeonOrange);
+            Raylib.DrawCircle(beaconX, beaconY, 2f, Theme.TextWhite);
+
+            // "PAUSE // ДВИЖЕНИЕ ОСТАНОВЛЕНО"
+            Theme.DrawDisplayText("PAUSE", beaconX + 16, cy + 12, 13, Theme.TextWhite);
+            Theme.DrawText("ДВИЖЕНИЕ ОСТАНОВЛЕНО", beaconX + 16, cy + 30, 8, Theme.TextDim);
+
+            // Right tactical action button: [ ПРОДОЛЖИТЬ: SPACE ]
+            int actW = (int)(160 * scale);
+            int actH = (int)(28 * scale);
+            int actX = boxX + boxW - actW - 14;
+            int actY = cy + (boxH - actH) / 2;
+
+            Raylib.DrawRectangle(actX, actY, actW, actH, new Color((byte)255, (byte)215, (byte)0, (byte)(25 + pulse * 25)));
+            Raylib.DrawRectangleLines(actX, actY, actW, actH, Theme.NeonGold);
+            Raylib.DrawRectangle(actX, actY, 3, actH, Theme.NeonGold);
+
+            string actLabel = "[SPACE] ПРОДОЛЖИТЬ";
+            int actTextW = Theme.MeasureText(actLabel, 9);
+            Theme.DrawText(actLabel, actX + (actW - actTextW) / 2, actY + (actH - Theme.GetScaledFontSize(9)) / 2, 9, Theme.NeonGold);
         }
 
         private int DrawAppleGlassCapsule(int screenWidth, int screenHeight)
         {
-            var cfg = AppConfig.Instance;
+            var cfg   = AppConfig.Instance;
             float scale = cfg.UiScale;
-            int capW = Math.Min((int)(880 * scale), screenWidth - 40);
-            int capH = (int)(68 * scale);
-            int capX = (screenWidth - capW) / 2;
-            int capY = (int)(screenHeight * 0.62f);
+            int capW  = Math.Min((int)(960 * scale), screenWidth - 36);
+            int capH  = (int)(80 * scale);
+            int capX  = (screenWidth - capW) / 2;
+            int capY  = (int)(screenHeight * 0.60f);
 
-            // Frosted Glass Capsule Background (Glassmorphism 2.0 with Specular Highlight)
-            Theme.DrawGlassPanel(capX, capY, capW, capH);
+            // Obsidian Technical Telemetry Box with pure dark background (matching console style)
+            Theme.DrawTechnicalBox(capX, capY, capW, capH, "REALTIME TELEMETRY", Theme.Border, Theme.BgDark, true);
 
             int colCount = 6;
-            int colW = capW / colCount;
+            int colW     = capW / colCount;
 
             float overallAvgAngle = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.AngleWidthDeg) : _currentStrafeAccumAngle;
-            float overallBadAng = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.BadAnglesPct) : 0.0f;
-            float avgGain = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.EstGain) : _currentStrafeGain;
-            float avgLoss = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.EstLoss) : _currentStrafeLoss;
+            float overallBadAng   = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.BadAnglesPct)  : 0.0f;
+            float avgGain         = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.EstGain)        : _currentStrafeGain;
+            float avgLoss         = _recentStrafes.Count > 0 ? _recentStrafes.Average(s => s.EstLoss)        : _currentStrafeLoss;
 
             Vector2 mouse = Raylib.GetMousePosition();
-            bool isFree = !InputManager.Instance.CursorLocked;
+            bool isFree   = !InputManager.Instance.CursorLocked;
 
             // Col 1: SYNC %
             Color syncCol = _smoothedAvgSync >= 80 ? Theme.NeonGreen : (_smoothedAvgSync >= 65 ? Theme.NeonGold : Theme.NeonOrange);
-            DrawCapsuleColumn(capX, capY, colW, capH, "AVG SYNC", $"{_smoothedAvgSync:F1}%", $"Live: {_liveRollingSyncPct:F0}%", syncCol, scale);
+            DrawCapsuleColumn(capX, capY, colW, capH, "AVG SYNC", $"{_smoothedAvgSync:F1}%", $"LIVE {_liveRollingSyncPct:F0}%", syncCol, scale);
             if (isFree && cfg.ShowTooltips && mouse.X >= capX && mouse.X < capX + colW && mouse.Y >= capY && mouse.Y <= capY + capH)
-            {
-                Theme.DrawTooltip((int)mouse.X, (int)mouse.Y, "AVERAGE SYNCHRONIZATION", "Percentage of air ticks where mouse turning matches the active A/D key.", "> 85% is Godlike");
-            }
+                _pendingTooltip = ((int)mouse.X, (int)mouse.Y, "AVERAGE SYNCHRONIZATION", "Percentage of air ticks where mouse turning matches the active A/D key.", "> 85% is Godlike");
 
             // Col 2: AVG ANGLE
             Color angCol = (overallAvgAngle >= 26 && overallAvgAngle <= 40) ? Theme.NeonGreen : Theme.NeonCyan;
-            DrawCapsuleColumn(capX + colW, capY, colW, capH, "AVG ANGLE", $"{overallAvgAngle:F1} deg", "Target: 30-35 deg", angCol, scale);
+            DrawCapsuleColumn(capX + colW, capY, colW, capH, "AVG ANGLE", $"{overallAvgAngle:F1}°", "TARGET 30-35°", angCol, scale);
             if (isFree && cfg.ShowTooltips && mouse.X >= capX + colW && mouse.X < capX + colW * 2 && mouse.Y >= capY && mouse.Y <= capY + capH)
-            {
-                Theme.DrawTooltip((int)mouse.X, (int)mouse.Y, "STRAFE SWEEP ANGLE", "Average mouse turn width in degrees. Ideal LJ angle is 30-35 deg.", "30° - 35° Sweet Spot");
-            }
+                _pendingTooltip = ((int)mouse.X, (int)mouse.Y, "STRAFE SWEEP ANGLE", "Average mouse turn width in degrees. Ideal LJ angle is 30-35 deg.", "30-35 deg sweet spot");
 
             // Col 3: BAD ANGLES
             Color badCol = overallBadAng <= 5.0f ? Theme.NeonGreen : (overallBadAng <= 15.0f ? Theme.NeonGold : Theme.NeonRed);
-            DrawCapsuleColumn(capX + colW * 2, capY, colW, capH, "BAD ANGLES", $"{overallBadAng:F1}%", "Jerks / Jitter", badCol, scale);
+            DrawCapsuleColumn(capX + colW * 2, capY, colW, capH, "BAD ANGLES", $"{overallBadAng:F1}%", "JERKS/LOSS", badCol, scale);
             if (isFree && cfg.ShowTooltips && mouse.X >= capX + colW * 2 && mouse.X < capX + colW * 3 && mouse.Y >= capY && mouse.Y <= capY + capH)
-            {
-                Theme.DrawTooltip((int)mouse.X, (int)mouse.Y, "BAD ANGLES (ПЛОХИЕ УГЛЫ / ЗАНОС / РЫВКИ)", "Доля времени, когда мышь разворачивается шире 40° или делает резкие рывки. В CS2 это срывает воздушное ускорение.", "Норма: < 3.0% | Приводит к потере Gain и росту Loss");
-            }
+                _pendingTooltip = ((int)mouse.X, (int)mouse.Y, "BAD ANGLES", "Percentage of ticks with jerk/overshoot > 40 deg. Kills air acceleration.", "< 3.0% target");
 
             // Col 4: GAIN / LOSS
-            DrawCapsuleColumn(capX + colW * 3, capY, colW, capH, "GAIN / LOSS", $"+{avgGain:F1} / -{avgLoss:F2}", "Estimated u/s", Theme.NeonCyan, scale);
+            DrawCapsuleColumn(capX + colW * 3, capY, colW, capH, "GAIN / LOSS", $"+{avgGain:F1}/-{avgLoss:F2}", "EST U/S", Theme.NeonBlue, scale);
             if (isFree && cfg.ShowTooltips && mouse.X >= capX + colW * 3 && mouse.X < capX + colW * 4 && mouse.Y >= capY && mouse.Y <= capY + capH)
-            {
-                Theme.DrawTooltip((int)mouse.X, (int)mouse.Y, "SPEED GAIN & LOSS", "Air acceleration speed gained vs speed lost per strafe in units/sec.", "+12 to +16 u/s per strafe");
-            }
+                _pendingTooltip = ((int)mouse.X, (int)mouse.Y, "SPEED GAIN & LOSS", "Air acceleration speed gained vs speed lost per strafe in units/sec.", "+12 to +16 u/s per strafe");
 
-            // Col 5: CADENCE OR CS2 STRAFE ESTIMATOR
+            // Col 5: CADENCE or CS2 ESTIMATOR
             if (cfg.MetronomeEnabled)
             {
-                DrawCapsuleColumn(capX + colW * 4, capY, colW, capH, "CADENCE (МЕТРОНОМ)", $"{cfg.TargetStrafeDurationMs:F0} ms", $"{cfg.CalculatedMetronomeBpm} BPM", Theme.NeonGold, scale);
+                DrawCapsuleColumn(capX + colW * 4, capY, colW, capH, "METRONOME", $"{cfg.TargetStrafeDurationMs:F0}ms", $"{cfg.CalculatedMetronomeBpm} BPM", Theme.NeonGold, scale);
                 if (isFree && cfg.ShowTooltips && mouse.X >= capX + colW * 4 && mouse.X < capX + colW * 5 && mouse.Y >= capY && mouse.Y <= capY + capH)
-                {
-                    Theme.DrawTooltip((int)mouse.X, (int)mouse.Y, "CADENCE & RHYTHM", "Целевой темп стрейфов и частота ударов метронома в BPM.", "8 Стрейфов: 95ms (630 BPM)");
-                }
+                    _pendingTooltip = ((int)mouse.X, (int)mouse.Y, "CADENCE & RHYTHM", "Target strafe tempo and metronome BPM.", "8 strafes: 95ms (630 BPM)");
             }
             else
             {
-                float curDur = _recentStrafes.Count > 0 
-                    ? (float)_recentStrafes.Take(3).Average(s => s.DurationMs) 
+                float curDur = _recentStrafes.Count > 0
+                    ? (float)_recentStrafes.Take(3).Average(s => s.DurationMs)
                     : (_freestyleAvgStrafeDurationMs > 20.0f ? _freestyleAvgStrafeDurationMs : 95.0f);
                 float estStrafes = AppConfig.EstimateStrafesInJump(curDur);
                 int liveBpm = (int)(60000.0f / Math.Max(20.0f, curDur));
-
-                DrawCapsuleColumn(capX + colW * 4, capY, colW, capH, "CS2 ЭКВИВАЛЕНТ", $"~{estStrafes:F1} СТРЕЙФОВ", $"{curDur:F0} мс ({liveBpm} BPM)", Theme.NeonGold, scale);
+                DrawCapsuleColumn(capX + colW * 4, capY, colW, capH, "CS2 EQUIV", $"~{estStrafes:F1}", $"{curDur:F0}ms / {liveBpm}BPM", Theme.NeonGold, scale);
                 if (isFree && cfg.ShowTooltips && mouse.X >= capX + colW * 4 && mouse.X < capX + colW * 5 && mouse.Y >= capY && mouse.Y <= capY + capH)
-                {
-                    Theme.DrawTooltip((int)mouse.X, (int)mouse.Y, "РАСЧЁТ СТРЕЙФОВ В CS2", "Сколько стрейфов при вашей текущей скорости рук вы успеете сделать за 1 прыжок в CS2 (~800мс).", "PRO CS2: 8 - 10 стрейфов");
-                }
+                    _pendingTooltip = ((int)mouse.X, (int)mouse.Y, "CS2 STRAFE ESTIMATOR", "How many strafes you can fit in 1 CS2 jump (~800ms).", "PRO CS2: 8-10 strafes");
             }
 
             // Col 6: STRAFES / STREAK
-            string streakStr = _perfectStreak > 1 ? $"Streak: {_perfectStreak}" : "Completed";
-            Color streakCol = _perfectStreak >= 5 ? Theme.NeonGold : Theme.TextWhite;
-            DrawCapsuleColumn(capX + colW * 5, capY, colW, capH, "STRAFES", $"#{_totalStrafesCompleted}", streakStr, streakCol, scale);
+            string streakStr = _perfectStreak > 1 ? $"STREAK {_perfectStreak}" : "COMPLETED";
+            Color streakCol  = _perfectStreak >= 5 ? Theme.NeonGold : Theme.TextWhite;
+            DrawCapsuleColumn(capX + colW * 5, capY, colW, capH, "TOTAL STRAFES", $"#{_totalStrafesCompleted}", streakStr, streakCol, scale);
 
             return capY + capH;
         }
 
         private void DrawCapsuleColumn(int x, int y, int w, int h, string label, string mainVal, string subVal, Color valColor, float scale)
         {
-            Raylib.DrawLine(x, y + (int)(8 * scale), x, y + h - (int)(8 * scale), new Color((byte)Theme.Border.R, (byte)Theme.Border.G, (byte)Theme.Border.B, (byte)150));
+            // Clean 1px vertical column divider
+            Raylib.DrawLine(x, y + 6, x, y + h - 6, Theme.Border);
 
             int cx = x + w / 2;
 
-            // Label
-            int lw = Theme.MeasureText(label, 11);
-            Theme.DrawText(label, cx - lw / 2, y + (int)(5 * scale), 11, Theme.TextMuted);
+            // Monospace label
+            int lw = Theme.MeasureText(label, 10);
+            Theme.DrawText(label, cx - lw / 2, y + (int)(8 * scale), 10, Theme.TextDim);
 
-            // Main Value
-            int mw = Theme.MeasureText(mainVal, 18);
-            Theme.DrawText(mainVal, cx - mw / 2, y + (int)(22 * scale), 18, valColor);
+            // Bold display main value (with anti-aliasing)
+            int mw = Theme.MeasureDisplayText(mainVal, 22);
+            Theme.DrawDisplayText(mainVal, cx - mw / 2, y + (int)(24 * scale), 22, valColor);
 
-            // Sub Value
-            int sw = Theme.MeasureText(subVal, 10);
-            Theme.DrawText(subVal, cx - sw / 2, y + (int)(46 * scale), 10, Theme.TextDim);
+            // Monospace sub value
+            int sw = Theme.MeasureText(subVal, 9);
+            Theme.DrawText(subVal, cx - sw / 2, y + (int)(54 * scale), 9, Theme.TextDim);
         }
 
         private void DrawReversalAlert(int screenWidth, int topY)
@@ -1114,11 +1137,11 @@ namespace LJTrainer.Modes
             if (_reversalFeedbackAnim <= 0.01f || string.IsNullOrEmpty(_reversalFeedbackText)) return;
 
             int cx = screenWidth / 2;
-            int rtw = Theme.MeasureText(_reversalFeedbackText, 13);
+            int rtw = Theme.MeasureText(_reversalFeedbackText, 12);
             byte alpha = (byte)Math.Clamp(255 * _reversalFeedbackAnim, 0, 255);
             Color alertCol = new((byte)_reversalFeedbackCol.R, (byte)_reversalFeedbackCol.G, (byte)_reversalFeedbackCol.B, alpha);
 
-            Theme.DrawText(_reversalFeedbackText, cx - rtw / 2, topY + 8, 13, alertCol);
+            Theme.DrawText(_reversalFeedbackText, cx - rtw / 2, topY + 8, 12, alertCol);
         }
 
         private void DrawKZShowkeysHUD(int screenWidth, int topY)
@@ -1126,8 +1149,8 @@ namespace LJTrainer.Modes
             var inp = InputManager.Instance;
             int cx = screenWidth / 2;
 
-            int keyW = 46;
-            int keyH = 42;
+            int keyW = 44;
+            int keyH = 38;
             int gap = 4;
 
             int row1Y = topY + 4;
@@ -1145,39 +1168,40 @@ namespace LJTrainer.Modes
 
             // Bottom Row: [DUCK] [JUMP]
             int auxW = (keyW * 3 + gap * 2 - gap) / 2;
-            int auxH = 26;
-            DrawKZKey(row2StartX, row3Y, auxW, auxH, "DUCK", inp.KeyDuck, _keyAnimDuck, false, 11);
-            DrawKZKey(row2StartX + auxW + gap, row3Y, auxW, auxH, "JUMP", inp.KeyJump, _keyAnimJump, false, 11);
+            int auxH = 24;
+            DrawKZKey(row2StartX, row3Y, auxW, auxH, "DUCK", inp.KeyDuck, _keyAnimDuck, false, 10);
+            DrawKZKey(row2StartX + auxW + gap, row3Y, auxW, auxH, "JUMP", inp.KeyJump, _keyAnimJump, false, 10);
         }
 
-        private void DrawKZKey(int x, int y, int w, int h, string label, bool isPressed, float animVal, bool isStrafeKey, int fontSize = 16)
+        private void DrawKZKey(int x, int y, int w, int h, string label, bool isPressed, float animVal, bool isStrafeKey, int fontSize = 14)
         {
-            int grow = (int)(animVal * 4.0f);
-            int kx = x - grow / 2;
-            int ky = y - grow / 2;
-            int kw = w + grow;
-            int kh = h + grow;
+            int grow = (int)(animVal * 3.0f);
+            int kx   = x - grow / 2;
+            int ky   = y - grow / 2;
+            int kw   = w + grow;
+            int kh   = h + grow;
 
             if (animVal > 0.05f)
             {
                 byte aByte = (byte)Math.Clamp(255 * animVal, 0, 255);
-                Color fillCol = isStrafeKey ? new Color((byte)245, (byte)252, (byte)255, aByte) : new Color((byte)230, (byte)240, (byte)255, aByte);
-                Color borderCol = isStrafeKey ? (label == "A" ? Theme.NeonCyan : Theme.NeonOrange) : Theme.TextWhite;
+                Color fillCol = isStrafeKey ? new Color((byte)28, (byte)28, (byte)28, aByte) : new Color((byte)20, (byte)20, (byte)20, aByte);
+                Color borderCol = isStrafeKey ? Theme.NeonCyan : Theme.BorderHighlight;
 
                 Raylib.DrawRectangle(kx, ky, kw, kh, fillCol);
                 Raylib.DrawRectangleLines(kx, ky, kw, kh, borderCol);
 
-                int tw = Raylib.MeasureText(label, fontSize);
-                Raylib.DrawText(label, kx + (kw - tw) / 2, ky + (kh - fontSize) / 2 + 1, fontSize, new Color(10, 13, 20, 255));
+                Color lCol = isStrafeKey ? Theme.NeonCyan : Theme.TextWhite;
+                int tw = Theme.MeasureText(label, fontSize);
+                Theme.DrawText(label, kx + (kw - tw) / 2, ky + (kh - Theme.GetScaledFontSize(fontSize)) / 2, fontSize, lCol);
             }
             else
             {
-                Raylib.DrawRectangle(x, y, w, h, new Color(Theme.BgPanel.R, Theme.BgPanel.G, Theme.BgPanel.B, (byte)210));
+                Raylib.DrawRectangle(x, y, w, h, Theme.BgDark);
                 Raylib.DrawRectangleLines(x, y, w, h, Theme.Border);
 
-                int tw = Raylib.MeasureText(label, fontSize);
-                Color textCol = isStrafeKey ? Theme.TextWhite : Theme.TextMuted;
-                Raylib.DrawText(label, x + (w - tw) / 2, y + (h - fontSize) / 2, fontSize, textCol);
+                Color textCol = isStrafeKey ? Theme.TextMuted : Theme.TextDim;
+                int tw = Theme.MeasureText(label, fontSize);
+                Theme.DrawText(label, x + (w - tw) / 2, y + (h - Theme.GetScaledFontSize(fontSize)) / 2, fontSize, textCol);
             }
         }
 
@@ -1188,7 +1212,7 @@ namespace LJTrainer.Modes
             int modalX = (screenWidth - modalW) / 2;
             int modalY = (screenHeight - modalH) / 2;
 
-            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color(0, 0, 0, 210));
+            Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, new Color(0, 0, 0, 220));
 
             Vector2 mouse = Raylib.GetMousePosition();
             if (Raylib.IsMouseButtonPressed(MouseButton.Left))
@@ -1200,74 +1224,69 @@ namespace LJTrainer.Modes
                 }
             }
 
-            Raylib.DrawRectangle(modalX, modalY, modalW, modalH, new Color(Theme.BgDark.R, Theme.BgDark.G, Theme.BgDark.B, (byte)252));
-            Raylib.DrawRectangleLines(modalX, modalY, modalW, modalH, Theme.NeonCyan);
+            Theme.DrawTechnicalBox(modalX, modalY, modalW, modalH, $"STRAFE TELEMETRY HISTORY // TOTAL: {_totalStrafesCompleted}", Theme.Border, Theme.BgDark);
 
-            Raylib.DrawRectangle(modalX, modalY, modalW, 38, Theme.BgPanelHeader);
-            Raylib.DrawRectangleLines(modalX, modalY, modalW, 38, Theme.Border);
-            Theme.DrawText($"ИСТОРИЯ СТРЕЙФОВ (ВСЕГО: {_totalStrafesCompleted} | ЛУЧШИЙ СТРИК: {_bestStreak})", modalX + 16, modalY + 11, 14, Theme.TextWhite);
-
-            if (Theme.DrawButton(modalX + modalW - 90, modalY + 6, 80, 26, "ЗАКРЫТЬ", false, 12))
+            if (Theme.DrawButton(modalX + modalW - 90, modalY + 8, 80, 24, "[CLOSE]", false, 11))
             {
                 ShowHistoryModal = false;
             }
 
-            int tableY = modalY + 48;
+            int tableY = modalY + 44;
             int tableW = modalW - 32;
-            int rowH = 24;
+            int rowH = 22;
 
-            Raylib.DrawRectangle(modalX + 16, tableY, tableW, rowH, Theme.BgPanelHeader);
+            Raylib.DrawRectangle(modalX + 16, tableY, tableW, rowH, Theme.BgPanel);
             Raylib.DrawRectangleLines(modalX + 16, tableY, tableW, rowH, Theme.Border);
 
-            string[] heads = { "#", "Key", "Duration (ms)", "Target (ms)", "Pace Offset", "Angle Width", "Sync %", "Overlap", "Dead Air", "Gain", "Loss", "Rating" };
+            string[] heads = { "#", "KEY", "DURATION", "TARGET", "OFFSET", "SWEEP", "SYNC %", "OVERLAP", "DEAD AIR", "GAIN", "LOSS", "RATING" };
             int[] cols = { 40, 50, 100, 95, 100, 100, 85, 90, 90, 75, 75, 150 };
 
             int tx = modalX + 22;
             for (int h = 0; h < heads.Length; h++)
             {
-                Theme.DrawText(heads[h], tx, tableY + 5, 11, Theme.TextMuted);
+                Theme.DrawText(heads[h], tx, tableY + 4, 10, Theme.TextMuted);
                 tx += cols[h];
             }
 
-            tableY += 26;
-            int maxRows = Math.Min(_recentStrafes.Count, (modalH - 95) / rowH);
+            tableY += 24;
+            int maxRows = Math.Min(_recentStrafes.Count, (modalH - 85) / rowH);
 
             for (int i = 0; i < maxRows; i++)
             {
                 var s = _recentStrafes[i];
-                Color rowBg = (i % 2 == 0) ? Theme.BgPanel : new Color(Theme.BgDark.R, Theme.BgDark.G, Theme.BgDark.B, (byte)255);
+                Color rowBg = (i % 2 == 0) ? Theme.BgPanel : Theme.BgDark;
                 Raylib.DrawRectangle(modalX + 16, tableY, tableW, rowH, rowBg);
 
                 tx = modalX + 22;
-                Theme.DrawText($"#{s.Index}", tx, tableY + 4, 11, Theme.TextWhite); tx += cols[0];
-                Theme.DrawText(s.Key, tx, tableY + 4, 11, s.Key == "D" ? Theme.NeonOrange : Theme.NeonCyan); tx += cols[1];
-                Theme.DrawText($"{s.DurationMs:F1} ms", tx, tableY + 4, 11, Theme.TextWhite); tx += cols[2];
-                Theme.DrawText($"{s.TargetDurationMs:F1} ms", tx, tableY + 4, 11, Theme.TextMuted); tx += cols[3];
+                Theme.DrawText($"#{s.Index}", tx, tableY + 3, 10, Theme.TextWhite); tx += cols[0];
+                Theme.DrawText(s.Key, tx, tableY + 3, 10, s.Key == "D" ? Theme.NeonOrange : Theme.NeonCyan); tx += cols[1];
+                Theme.DrawText($"{s.DurationMs:F1}ms", tx, tableY + 3, 10, Theme.TextWhite); tx += cols[2];
+                Theme.DrawText($"{s.TargetDurationMs:F1}ms", tx, tableY + 3, 10, Theme.TextMuted); tx += cols[3];
 
                 float paceErr = s.DurationMs - s.TargetDurationMs;
                 Color paceCol = MathF.Abs(paceErr) <= 25.0f ? Theme.NeonGreen : (paceErr > 0 ? Theme.NeonRed : Theme.NeonGold);
-                Theme.DrawText($"{paceErr:+0.0;-0.0;0.0} ms", tx, tableY + 4, 11, paceCol); tx += cols[4];
+                Theme.DrawText($"{paceErr:+0.0;-0.0;0.0}ms", tx, tableY + 3, 10, paceCol); tx += cols[4];
 
                 Color angCol = s.IsOptimalAngle ? Theme.NeonGreen : (s.AngleWidthDeg < 26 ? Theme.NeonCyan : Theme.NeonOrange);
-                Theme.DrawText($"{s.AngleWidthDeg:F1} deg", tx, tableY + 4, 11, angCol); tx += cols[5];
+                Theme.DrawText($"{s.AngleWidthDeg:F1}deg", tx, tableY + 3, 10, angCol); tx += cols[5];
 
                 Color syncCol = s.SyncPct >= 80.0f ? Theme.NeonGreen : (s.SyncPct >= 65.0f ? Theme.NeonGold : Theme.NeonRed);
-                Theme.DrawText($"{s.SyncPct:F1}%", tx, tableY + 4, 11, syncCol); tx += cols[6];
+                Theme.DrawText($"{s.SyncPct:F1}%", tx, tableY + 3, 10, syncCol); tx += cols[6];
 
                 Color overCol = s.OverlapMs <= 5.0f ? Theme.NeonGreen : Theme.NeonRed;
-                Theme.DrawText($"{s.OverlapMs:F0} ms", tx, tableY + 4, 11, overCol); tx += cols[7];
+                Theme.DrawText($"{s.OverlapMs:F0}ms", tx, tableY + 3, 10, overCol); tx += cols[7];
 
                 Color deadCol = s.DeadAirMs <= 15.0f ? Theme.NeonGreen : Theme.NeonGold;
-                Theme.DrawText($"{s.DeadAirMs:F0} ms", tx, tableY + 4, 11, deadCol); tx += cols[8];
+                Theme.DrawText($"{s.DeadAirMs:F0}ms", tx, tableY + 3, 10, deadCol); tx += cols[8];
 
-                Theme.DrawText($"+{s.EstGain:F1}", tx, tableY + 4, 11, Theme.NeonCyan); tx += cols[9];
-                Theme.DrawText($"-{s.EstLoss:F2}", tx, tableY + 4, 11, Theme.NeonOrange); tx += cols[10];
+                Theme.DrawText($"+{s.EstGain:F1}", tx, tableY + 3, 10, Theme.NeonBlue); tx += cols[9];
+                Theme.DrawText($"-{s.EstLoss:F2}", tx, tableY + 3, 10, Theme.NeonOrange); tx += cols[10];
 
                 string rating = (s.IsOptimalPace && s.IsOptimalAngle && s.SyncPct >= 75.0f && s.OverlapMs <= 5.0f)
-                    ? "[PERFECT] FLIGHT"
-                    : (s.IsOptimalPace ? "[GOOD PACE]" : (s.IsOptimalAngle ? "[GOOD ANGLE]" : "ADJUST REVERSAL"));
+                    ? "[PERFECT]"
+                    : (s.IsOptimalPace ? "[GOOD PACE]" : (s.IsOptimalAngle ? "[GOOD ANGLE]" : "[ADJUST]"));
                 Color ratingCol = rating.Contains("PERFECT") ? Theme.NeonGreen : (rating.Contains("GOOD") ? Theme.NeonCyan : Theme.NeonOrange);
-                Theme.DrawText(rating, tx, tableY + 4, 11, ratingCol);
+                Theme.DrawText(rating, tx, tableY + 3, 10, ratingCol);
 
                 tableY += rowH + 1;
             }

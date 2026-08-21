@@ -81,11 +81,12 @@ namespace LJTrainer.Modes
 
         public void Draw(int screenWidth, int screenHeight)
         {
-            int margin = 16;
-            int topBarY = 54;
+            float scale = AppConfig.Instance.UiScale;
+            int margin = (int)(16 * scale);
+            int topBarY = (int)(46 * scale);
 
             int oscW = screenWidth - margin * 2;
-            int oscH = screenHeight - topBarY - margin - 10;
+            int oscH = screenHeight - topBarY - (int)(34 * scale);
 
             OscilloscopeView.Draw(_history, margin, topBarY, oscW, oscH, _liveSyncPct, _liveGain, _liveOverlapMs, _liveDeadAirMs);
         }

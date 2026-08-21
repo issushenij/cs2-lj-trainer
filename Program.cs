@@ -58,8 +58,10 @@ namespace LJTrainer
             };
             CS2ConsoleWatcher.StartWatching();
 
+            bool isDumpScreensMode = args.Length > 0 && args[0] == "--dump-screens";
+
             // Set process DPI aware and configure Raylib flags
-            Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
+            Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint | (isDumpScreensMode ? ConfigFlags.HiddenWindow : 0));
             Raylib.InitWindow(1380, 860, $"CS2 Long Jump Cadence & Sync Lab [{UpdateManager.CurrentVersion}]");
             Raylib.SetWindowMinSize(1024, 700);
             Raylib.SetTargetFPS(144);
@@ -75,6 +77,55 @@ namespace LJTrainer
             Theme.InitializeFont();
             SvgIconManager.Initialize();
             ShaderFxManager.Initialize(1380, 860);
+
+            if (isDumpScreensMode)
+            {
+                Directory.CreateDirectory("screenshots");
+
+                void RenderAndSave(string filename, Action setup)
+                {
+                    setup();
+                    Raylib.BeginDrawing();
+                    Raylib.ClearBackground(Theme.BgDark);
+                    int sw = Raylib.GetScreenWidth();
+                    int sh = Raylib.GetScreenHeight();
+
+                    if (_profileModal.IsOpen)
+                    {
+                        _profileModal.Draw(sw, sh);
+                    }
+                    else
+                    {
+                        _cadenceLab.Draw(sw, sh);
+                        DrawTopNavBar(sw);
+                        DrawBottomStatusBar(sw, sh);
+                        if (_settings.IsOpen)
+                        {
+                            _settings.Draw(sw, sh);
+                        }
+                    }
+                    Raylib.EndDrawing();
+
+                    string relPath = Path.Combine("screenshots", filename).Replace('\\', '/');
+                    Raylib.TakeScreenshot(relPath);
+                    Console.WriteLine($"[SCREENSHOT] Captured {relPath}");
+                }
+
+                // 1. Trainer screen
+                RenderAndSave("screen_trainer.png", () => { _currentMode = AppMode.CadenceLab; _profileModal.IsOpen = false; _settings.IsOpen = false; });
+                // 2. Profile Jump PBs tab
+                RenderAndSave("screen_profile_pbs.png", () => { _profileModal.IsOpen = true; _profileModal.SetActiveTab(1); _settings.IsOpen = false; });
+                // 3. Profile KZ Maps tab
+                RenderAndSave("screen_profile_maps.png", () => { _profileModal.IsOpen = true; _profileModal.SetActiveTab(2); _settings.IsOpen = false; });
+                // 4. Profile Deep Analytics tab
+                RenderAndSave("screen_profile_analytics.png", () => { _profileModal.IsOpen = true; _profileModal.SetActiveTab(0); _settings.IsOpen = false; });
+                // 5. Settings modal screen
+                RenderAndSave("screen_settings.png", () => { _profileModal.IsOpen = false; _settings.IsOpen = true; });
+
+                Raylib.CloseWindow();
+                Console.WriteLine("[SUCCESS] All UI screenshots dumped successfully!");
+                return;
+            }
 
             // Initialize Windows System Tray Icon
             TrayManager.Initialize(
@@ -238,15 +289,11 @@ namespace LJTrainer
                         AppConfig.Instance.ModeType = TrainerMode.StrafePractice;
                         AppConfig.Save();
                     }
-                    if (Raylib.IsKeyPressed(KeyboardKey.Two))
+                    if (Raylib.IsKeyPressed(KeyboardKey.P))
                     {
                         _profileModal.IsOpen = true;
                         _cadenceLab.IsTrainingRunning = false;
                         InputManager.Instance.SetCursorLock(false);
-                    }
-                    if (Raylib.IsKeyPressed(KeyboardKey.Three))
-                    {
-                        _currentMode = AppMode.Oscilloscope;
                     }
                     if (Raylib.IsKeyPressed(KeyboardKey.M))
                     {
@@ -304,7 +351,10 @@ namespace LJTrainer
                     // 2. Draw Master Top Navigation Bar
                     DrawTopNavBar(screenW);
 
-                    // 3. Draw Modals
+                    // 3. Draw Bottom Terminal Command Bar
+                    DrawBottomStatusBar(screenW, screenH);
+
+                    // 4. Draw Modals
                     if (_cadenceLab.ShowHistoryModal)
                     {
                         _cadenceLab.DrawHistoryModal(screenW, screenH);
@@ -320,8 +370,11 @@ namespace LJTrainer
                         _guideModal.Draw(screenW, screenH);
                     }
 
-                    // 4. In-App Update Modal Prompt
+                    // 5. In-App Update Modal Prompt
                     UpdateModal.Draw(screenW, screenH, AppConfig.Instance.UiScale, true);
+
+                    // 6. Optional CRT Scanlines Overlay
+                    Theme.DrawCrtScanlines(screenW, screenH);
                 }
 
                 Raylib.EndDrawing();
@@ -336,32 +389,77 @@ namespace LJTrainer
             Raylib.CloseWindow();
         }
 
+        private static void DrawBottomStatusBar(int screenW, int screenH)
+        {
+            float scale = AppConfig.Instance.UiScale;
+            int barH = (int)(24 * scale);
+            int barY = screenH - barH;
+
+            // Translucent terminal status bar
+            Raylib.DrawRectangle(0, barY, screenW, barH, Theme.BgDark);
+            Raylib.DrawLine(0, barY, screenW, barY, Theme.Border);
+
+            int ty = barY + (barH - Theme.GetScaledFontSize(9)) / 2;
+
+            // Left: checkerboard pattern + technical console stream status
+            int cbX = 10;
+            for (int i = 0; i < 4; i++)
+            {
+                Raylib.DrawRectangle(cbX + i * 6, barY + (barH - 6) / 2, 3, 3, Theme.NeonCyan);
+                Raylib.DrawRectangle(cbX + i * 6 + 3, barY + (barH - 6) / 2 + 3, 3, 3, Theme.NeonCyan);
+            }
+
+            string watcher = CS2ConsoleWatcher.IsWatching ? "LIVE" : "IDLE";
+            string leftInfo = $"> CS2 CONSOLE: [{watcher}] // ENGINE: {AppConfig.Instance.Mode} ({AppConfig.Instance.Tickrate}T) // SENS: {AppConfig.Instance.Sensitivity:F2}";
+            Theme.DrawText(leftInfo, cbX + 32, ty, 9, Theme.TextMuted);
+
+            // Right: terminal shortcuts in bracket notation
+            string rightKeys = "[SPACE] ENGAGE   [1] LAB   [P] PROFILE   [TAB] SETTINGS   [F1] GUIDE";
+            int rkW = Theme.MeasureText(rightKeys, 9);
+            Theme.DrawText(rightKeys, screenW - rkW - 40, ty, 9, Theme.NeonCyan);
+
+            // Far right: micro checkerboard
+            int rcbX = screenW - 32;
+            for (int i = 0; i < 4; i++)
+            {
+                Raylib.DrawRectangle(rcbX + i * 6, barY + (barH - 6) / 2, 3, 3, Theme.NeonOrange);
+                Raylib.DrawRectangle(rcbX + i * 6 + 3, barY + (barH - 6) / 2 + 3, 3, 3, Theme.NeonOrange);
+            }
+        }
+
         private static void DrawTopNavBar(int screenWidth)
         {
             var cfg = AppConfig.Instance;
             float scale = cfg.UiScale;
-            int tabY = 8;
-            int tabH = (int)(32 * scale);
-            int navH = tabH + 16;
+            int tabY = 5;
+            int tabH = (int)(28 * scale);
+            int navH = tabH + 10;
 
-            // Top Nav Glass Background
-            Theme.DrawGlassPanel(0, 0, screenWidth, navH);
+            // ── TUI TOP BAR CONTAINER ────────────────────────────────────────────────
+            Raylib.DrawRectangle(0, 0, screenWidth, navH, Theme.BgDark);
+            Raylib.DrawLine(0, navH - 1, screenWidth, navH - 1, Theme.Border);
 
-            // 1. User Vector Logo (Authentic SVG: Large LJ + TRAINER below in pure white)
-            int logoW = (int)(36 * scale);
-            int logoH = (int)(33 * scale);
-            int logoX = 16;
-            int logoY = tabY - (int)(1 * scale);
+            // Logo: "LJ LAB" (Version shown on hover tooltip)
+            int verX = (int)(16 * scale);
+            int verY = (navH - Theme.GetScaledFontSize(12)) / 2;
+            Theme.DrawText("LJ", verX, verY - 1, 14, Theme.TextWhite);
+            Theme.DrawText("LAB", verX + (int)(22 * scale), verY + 1, 11, Theme.TextDim);
 
-            SvgIconManager.DrawLjLogoSvg(logoX, logoY, logoW, logoH, Color.White);
+            // Hover tooltip on logo
+            Vector2 mouse = Raylib.GetMousePosition();
+            if (mouse.X >= verX && mouse.X <= verX + (int)(60 * scale) && mouse.Y >= 0 && mouse.Y <= navH)
+            {
+                Theme.DrawTooltip((int)mouse.X, (int)mouse.Y + 20, "CS2 LONG JUMP TRAINER", $"Version {UpdateManager.CurrentVersion}", "KZ & Movement Cadence Practice Engine");
+            }
 
-            int curX = logoX + logoW + (int)(18 * scale);
-            int gap = (int)(8 * scale);
+            int curX = verX + (int)(55 * scale) + (int)(16 * scale);
+            int gap = (int)(4 * scale);
+            bool compact = screenWidth < 1180;
+            bool ultraCompact = screenWidth < 960;
 
-            // Helper to draw a flowing button on the left
             bool DrawFlowButton(string text, bool active, int fontSize, Action onClick)
             {
-                int bw = Theme.MeasureText(text, fontSize) + (int)(18 * scale);
+                int bw = Theme.MeasureText(text, fontSize) + (int)(14 * scale);
                 if (Theme.DrawButton(curX, tabY, bw, tabH, text, active, fontSize))
                 {
                     onClick();
@@ -371,56 +469,54 @@ namespace LJTrainer
                 return false;
             }
 
-            // Modes
+            // Mode: Trainer
             bool isStrafe = _currentMode == AppMode.CadenceLab;
-            DrawFlowButton("1. Тренажёр", isStrafe, 12, () =>
+            string trainerLabel = ultraCompact ? "[LAB]" : "[TRAINER]";
+            DrawFlowButton(trainerLabel, isStrafe, 11, () =>
             {
                 _currentMode = AppMode.CadenceLab;
                 cfg.ModeType = TrainerMode.StrafePractice;
                 AppConfig.Save();
             });
 
-            bool isOsc = _currentMode == AppMode.Oscilloscope;
-            DrawFlowButton("2. Осциллограф", isOsc, 12, () =>
-            {
-                _currentMode = AppMode.Oscilloscope;
-            });
-
-            // Play / Pause Button
+            // Play / Pause
             bool running = _cadenceLab.IsTrainingRunning;
-            string playLabel = running ? "⏸ Пауза (Space)" : "▶ СТАРТ (Space)";
-            DrawFlowButton(playLabel, !running, 12, () =>
+            string playLabel = running ? "[PAUSE]" : "[START]";
+            DrawFlowButton(playLabel, running, 11, () =>
             {
                 _cadenceLab.IsTrainingRunning = !_cadenceLab.IsTrainingRunning;
                 InputManager.Instance.SetCursorLock(_cadenceLab.IsTrainingRunning);
             });
 
-            // Metronome Icon Button with Animated Swinging Needle & Target Pace
-            string metroLabel = cfg.MetronomeEnabled ? $"{cfg.TargetStrafeDurationMs:F0}мс" : "ВЫКЛ";
-            int metroW = Theme.MeasureText(metroLabel, 12) + (int)(38 * scale);
-            if (Theme.DrawIconButton(curX, tabY, metroW, tabH, (cx, cy, sz, col) => Theme.DrawMetronomeIcon(cx, cy, sz, col, cfg.MetronomeEnabled), metroLabel, cfg.MetronomeEnabled, 12))
+            // Metronome button
+            string metroLabel = cfg.MetronomeEnabled
+                ? (ultraCompact ? $"[M:{cfg.TargetStrafeDurationMs:F0}]" : $"[M: {cfg.TargetStrafeDurationMs:F0}ms]")
+                : "[M: OFF]";
+            DrawFlowButton(metroLabel, cfg.MetronomeEnabled, 11, () =>
             {
                 cfg.MetronomeEnabled = !cfg.MetronomeEnabled;
                 AppConfig.Save();
-            }
-            curX += metroW + gap;
+            });
 
-            // Sound Speaker Icon Button (Direct rendering of user's SVG files)
-            int soundW = (int)(38 * scale);
-            if (Theme.DrawIconButton(curX, tabY, soundW, tabH, (cx, cy, sz, col) => SvgIconManager.DrawSpeakerSvg(cx, cy, (int)(22 * scale), col, !cfg.SoundEnabled, cfg.MasterVolume), null, cfg.SoundEnabled, 12))
+            // Sound button
+            string soundLabel = cfg.SoundEnabled
+                ? (ultraCompact ? "[VOL]" : "[VOL: ON]")
+                : (ultraCompact ? "[MUTE]" : "[VOL: OFF]");
+            DrawFlowButton(soundLabel, cfg.SoundEnabled, 11, () =>
             {
                 cfg.SoundEnabled = !cfg.SoundEnabled;
                 AppConfig.Save();
-            }
-            curX += soundW + gap;
+            });
 
-            // 6. Right-aligned Action Items (flowing right to left)
-            int rx = screenWidth - (int)(16 * scale);
+            // ── RIGHT-ALIGNED COMMANDS ────────────────────────────────────────────────
+            int rx = screenWidth - (int)(12 * scale);
 
-            // 1. Profile Square Vector Icon Button (Rightmost, with Real Steam Avatar)
-            int profBtnSize = tabH; // Pure square button
+            // Profile button with real Steam Avatar icon
+            int profBtnSize = tabH;
             rx -= profBtnSize;
-            if (Theme.DrawIconButton(rx, tabY, profBtnSize, tabH, (cx, cy, sz, col) => _profileModal.DrawProfileAvatarIcon(cx, cy, sz, col), null, _profileModal.IsOpen, 12))
+            if (Theme.DrawIconButton(rx, tabY, profBtnSize, tabH,
+                (cx, cy, sz, col) => _profileModal.DrawProfileAvatarIcon(cx, cy, sz, col),
+                null, _profileModal.IsOpen, 11))
             {
                 _profileModal.IsOpen = !_profileModal.IsOpen;
                 if (_profileModal.IsOpen)
@@ -434,10 +530,11 @@ namespace LJTrainer
             }
             rx -= gap;
 
-            // 2. Settings Gear Square Icon Button
-            int gearBtnSize = tabH; // Pure square icon button
-            rx -= gearBtnSize;
-            if (Theme.DrawIconButton(rx, tabY, gearBtnSize, tabH, (cx, cy, sz, col) => Theme.DrawGearSettingsIcon(cx, cy, (int)(20 * scale), col), null, _settings.IsOpen, 12))
+            // Settings button
+            string setLabel = ultraCompact ? "[SET]" : "[SETTINGS]";
+            int cfgW = Theme.MeasureText(setLabel, 11) + (int)(14 * scale);
+            rx -= cfgW;
+            if (Theme.DrawButton(rx, tabY, cfgW, tabH, setLabel, _settings.IsOpen, 11))
             {
                 _settings.IsOpen = !_settings.IsOpen;
                 if (_settings.IsOpen)
@@ -448,42 +545,24 @@ namespace LJTrainer
                     _profileModal.IsOpen = false;
                     _cadenceLab.ShowHistoryModal = false;
                 }
-                else
-                {
-                    AppConfig.Save();
-                }
+                else AppConfig.Save();
             }
             rx -= gap;
 
             void DrawRightButton(string text, bool active, int fontSize, Action onClick)
             {
-                int bw = Theme.MeasureText(text, fontSize) + (int)(18 * scale);
+                int bw = Theme.MeasureText(text, fontSize) + (int)(14 * scale);
                 rx -= bw;
-                if (Theme.DrawButton(rx, tabY, bw, tabH, text, active, fontSize))
-                {
-                    onClick();
-                }
+                if (Theme.DrawButton(rx, tabY, bw, tabH, text, active, fontSize)) onClick();
                 rx -= gap;
             }
 
-            // Update Available Badge Button (Glowing Cyan/Gold on Top Bar)
-            if (UpdateManager.UpdateAvailable)
-            {
-                string upLabel = $"⚡ ОБНОВЛЕНИЕ ({UpdateManager.LatestRelease?.TagName ?? "NEW"})";
-                int upW = Theme.MeasureText(upLabel, 11) + (int)(18 * scale);
-                rx -= upW;
-                Raylib.DrawRectangle(rx, tabY, upW, tabH, new Color(255, 215, 0, 35));
-                Raylib.DrawRectangleLines(rx, tabY, upW, tabH, Theme.NeonGold);
-                if (Theme.DrawButton(rx, tabY, upW, tabH, upLabel, true, 11))
-                {
-                    UpdateManager.ShowUpdatePrompt = true;
-                }
-                rx -= gap;
-            }
-
-            // History
-            string histLabel = _cadenceLab.ShowHistoryModal ? "Закрыть ✕" : $"История ({_cadenceLab.RecentStrafes.Count})";
-            DrawRightButton(histLabel, _cadenceLab.ShowHistoryModal, 13, () =>
+            // History button
+            int histCount = _cadenceLab.RecentStrafes.Count;
+            string histLabel = _cadenceLab.ShowHistoryModal
+                ? "[HISTORY: X]"
+                : (ultraCompact ? $"[H:{histCount}]" : (compact ? $"[HIST: {histCount}]" : $"[HISTORY: {histCount}]"));
+            DrawRightButton(histLabel, _cadenceLab.ShowHistoryModal, 11, () =>
             {
                 _cadenceLab.ShowHistoryModal = !_cadenceLab.ShowHistoryModal;
                 if (_cadenceLab.ShowHistoryModal)
@@ -496,16 +575,17 @@ namespace LJTrainer
                 }
             });
 
-            // Guide
-            DrawRightButton("Гайд (F1)", _guideModal.IsOpen, 13, () =>
+            // Guide button
+            string guideLabel = ultraCompact ? "[F1]" : (compact ? "[GUIDE]" : "[F1: GUIDE]");
+            DrawRightButton(guideLabel, _guideModal.IsOpen, 11, () =>
             {
                 _guideModal.IsOpen = !_guideModal.IsOpen;
                 if (_guideModal.IsOpen)
                 {
                     _cadenceLab.IsTrainingRunning = false;
                     InputManager.Instance.SetCursorLock(false);
-                    _settings.IsOpen = false;
                     _profileModal.IsOpen = false;
+                    _settings.IsOpen = false;
                     _cadenceLab.ShowHistoryModal = false;
                 }
             });

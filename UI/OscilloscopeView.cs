@@ -20,23 +20,23 @@ namespace LJTrainer.UI
     {
         public static void Draw(List<WavePoint> history, int x, int y, int width, int height, float liveSync, float liveGain, float liveOverlapMs, float liveDeadAirMs)
         {
-            Theme.DrawPanel(x, y, width, height, "LIVE SYNCHRONIZATION OSCILLOSCOPE");
+            Theme.DrawTechnicalBox(x, y, width, height, "LIVE SYNCHRONIZATION OSCILLOSCOPE", Theme.Border, Theme.BgPanel);
 
             int graphX = x + 12;
             int graphY = y + 36;
             int graphW = width - 24;
-            int graphH = height - 120;
+            int graphH = height - 110;
 
-            // Background of graph
-            Raylib.DrawRectangle(graphX, graphY, graphW, graphH, new Color(9, 11, 15, 255));
+            // Background of graph - deep matte black
+            Raylib.DrawRectangle(graphX, graphY, graphW, graphH, Theme.BgDark);
             Raylib.DrawRectangleLines(graphX, graphY, graphW, graphH, Theme.Border);
 
             // Center zero line
             int midY = graphY + graphH / 2;
-            Raylib.DrawLine(graphX, midY, graphX + graphW, midY, new Color(45, 52, 70, 180));
-            Raylib.DrawText("0 deg/s", graphX + 6, midY - 6, 10, Theme.TextDim);
-            Raylib.DrawText("+ TURN LEFT (A)", graphX + graphW - 110, graphY + 6, 10, Theme.NeonCyan);
-            Raylib.DrawText("- TURN RIGHT (D)", graphX + graphW - 110, graphY + graphH - 16, 10, Theme.NeonOrange);
+            Raylib.DrawLine(graphX, midY, graphX + graphW, midY, new Color(45, 45, 45, 180));
+            Theme.DrawText("0 deg/s", graphX + 6, midY - 6, 10, Theme.TextDim);
+            Theme.DrawText("+ TURN LEFT (A)", graphX + graphW - 120, graphY + 6, 10, Theme.NeonCyan);
+            Theme.DrawText("- TURN RIGHT (D)", graphX + graphW - 120, graphY + graphH - 16, 10, Theme.NeonOrange);
 
             if (history != null && history.Count > 1)
             {
@@ -52,23 +52,20 @@ namespace LJTrainer.UI
 
                     if (pt.IsOverlap)
                     {
-                        // Overlap Warning (Red Bar full height)
-                        Raylib.DrawRectangle(px, graphY + 1, pw, graphH - 2, new Color(255, 23, 68, 80));
+                        Raylib.DrawRectangle(px, graphY + 1, pw, graphH - 2, new Color(240, 70, 70, 60));
                     }
                     else if (pt.KeyA)
                     {
-                        // Key A (Left) Upper band
-                        Raylib.DrawRectangle(px, graphY + 1, pw, graphH / 2 - 1, new Color(0, 229, 255, 35));
+                        Raylib.DrawRectangle(px, graphY + 1, pw, graphH / 2 - 1, new Color(75, 170, 255, 30));
                     }
                     else if (pt.KeyD)
                     {
-                        // Key D (Right) Lower band
-                        Raylib.DrawRectangle(px, midY + 1, pw, graphH / 2 - 2, new Color(255, 145, 0, 35));
+                        Raylib.DrawRectangle(px, midY + 1, pw, graphH / 2 - 2, new Color(245, 120, 40, 30));
                     }
                 }
 
                 // 2. Draw Mouse Yaw Velocity Curve with Smooth Catmull-Rom Spline
-                float maxVal = 25.0f; // degrees per tick scale
+                float maxVal = 25.0f;
                 List<Vector2> rawWave = new();
                 for (int i = 0; i < count; i++)
                 {
@@ -104,10 +101,8 @@ namespace LJTrainer.UI
                                 (-p0 + 3f * p1 - 3f * p2 + p3) * t3
                             );
 
-                            // Glow line
-                            Raylib.DrawLineEx(prevSpline, currSpline, 4.5f, new Color(waveCol.R, waveCol.G, waveCol.B, (byte)50));
-                            // Core wave
-                            Raylib.DrawLineEx(prevSpline, currSpline, 2.2f, waveCol);
+                            Raylib.DrawLineEx(prevSpline, currSpline, 3.5f, new Color(waveCol.R, waveCol.G, waveCol.B, (byte)40));
+                            Raylib.DrawLineEx(prevSpline, currSpline, 1.8f, waveCol);
 
                             prevSpline = currSpline;
                         }
@@ -115,7 +110,7 @@ namespace LJTrainer.UI
                 }
 
                 // 3. Draw Sync Status strip at the bottom of graph
-                int stripY = graphY + graphH - 8;
+                int stripY = graphY + graphH - 6;
                 for (int i = 0; i < count; i++)
                 {
                     var pt = history[i];
@@ -123,14 +118,14 @@ namespace LJTrainer.UI
                     int pw = Math.Max(1, (int)stepX + 1);
 
                     Color syncCol = pt.IsOverlap ? Theme.NeonRed : (pt.IsSync ? Theme.NeonGreen : Theme.TextDim);
-                    Raylib.DrawRectangle(px, stripY, pw, 6, syncCol);
+                    Raylib.DrawRectangle(px, stripY, pw, 5, syncCol);
                 }
             }
 
-            // Live Telemetry Cards at bottom
-            int cardY = graphY + graphH + 12;
+            // Live Telemetry Cards at bottom (Obsidian minimal blocks)
+            int cardY = graphY + graphH + 10;
             int cardW = (width - 24 - 36) / 4;
-            int cardH = 58;
+            int cardH = 54;
 
             DrawMeterCard(graphX, cardY, cardW, cardH, "LIVE SYNC", $"{liveSync:F1}%", liveSync >= 85 ? Theme.NeonGreen : (liveSync >= 65 ? Theme.NeonCyan : Theme.NeonRed));
             DrawMeterCard(graphX + cardW + 12, cardY, cardW, cardH, "LIVE GAIN", $"+{liveGain:F2} u/s", liveGain > 1.0f ? Theme.NeonGreen : Theme.NeonCyan);
@@ -140,11 +135,9 @@ namespace LJTrainer.UI
 
         private static void DrawMeterCard(int x, int y, int width, int height, string label, string val, Color valCol)
         {
-            Raylib.DrawRectangle(x, y, width, height, Theme.BgPanelHeader);
-            Raylib.DrawRectangleLines(x, y, width, height, Theme.Border);
-
-            Raylib.DrawText(label, x + 10, y + 8, 11, Theme.TextMuted);
-            Raylib.DrawText(val, x + 10, y + 26, 20, valCol);
+            Theme.DrawTechnicalBox(x, y, width, height, null, Theme.Border, Theme.BgPanel, false);
+            Theme.DrawText(label, x + 10, y + 6, 10, Theme.TextMuted);
+            Theme.DrawDisplayText(val, x + 10, y + 22, 18, valCol);
         }
     }
 }

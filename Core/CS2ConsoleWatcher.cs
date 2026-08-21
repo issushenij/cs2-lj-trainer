@@ -85,6 +85,33 @@ namespace LJTrainer.Core
 
         public static event Action<CS2ConsoleEvent>? OnConsoleEvent;
 
+        private static readonly HashSet<string> _knownJumpSignatures = new();
+
+        public static string ComputeJumpSignature(CS2ConsoleEvent j)
+        {
+            string nick = (j.PlayerNick ?? "").Trim().ToLowerInvariant();
+            return $"{nick}_{j.JumpType}_{j.Distance:F2}_{j.Strafes}_{j.Sync:F0}_{j.PreSpeed:F0}_{j.BlockDistance:F0}";
+        }
+
+        public static void InitializeFromProfile(CybershokeKzProfile cs)
+        {
+            _knownJumpSignatures.Clear();
+            foreach (var kvp in cs.JumpHistoryPerType)
+            {
+                if (kvp.Value != null)
+                {
+                    foreach (var j in kvp.Value)
+                    {
+                        _knownJumpSignatures.Add(ComputeJumpSignature(j));
+                    }
+                }
+            }
+            foreach (var j in cs.RecentJumps)
+            {
+                _knownJumpSignatures.Add(ComputeJumpSignature(j));
+            }
+        }
+
         // "issushenij jumped 269.2057 units (Block: 260) with a Long Jump" or "issushenij jumped 269.2057 units with a Long Jump"
         private static readonly Regex JumpedPattern = new(
             @"^([a-zA-Z0-9_\-\.\s\[\]{}()]+?)\s+jumped\s+([0-9]+\.[0-9]+)\s+units(?:\s*\(?(?:Block|Блок):\s*([0-9]+(?:\.[0-9]+)?)\)?)?\s+with\s+a\s+([\w\s\-]+)",
@@ -188,6 +215,25 @@ namespace LJTrainer.Core
                             _lastFilePosition = 0;
                         }
 
+                        if (!_initialScanComplete)
+                        {
+                            var prof = UserProfile.Instance;
+                            if (prof.LastLogPosition > 0 && fs.Length >= prof.LastLogPosition && prof.LastLogLength == fs.Length)
+                            {
+                                _lastFilePosition = prof.LastLogPosition;
+                                _initialScanComplete = true;
+                            }
+                            else if (prof.LastLogPosition > 0 && fs.Length >= prof.LastLogPosition)
+                            {
+                                _lastFilePosition = prof.LastLogPosition;
+                            }
+                            else
+                            {
+                                // First launch or file rotated: only scan the newest ~1MB of log from the tail
+                                _lastFilePosition = Math.Max(0, fs.Length - 1024 * 1024);
+                            }
+                        }
+
                         if (fs.Length > _lastFilePosition)
                         {
                             fs.Seek(_lastFilePosition, SeekOrigin.Begin);
@@ -195,14 +241,39 @@ namespace LJTrainer.Core
                             string? line;
 
                             bool isInit = !_initialScanComplete;
+                            bool hasNewJumps = false;
 
                             while ((line = reader.ReadLine()) != null)
                             {
-                                ParseLine(line, isInit);
+                                if (ParseLine(line, isInit))
+                                {
+                                    hasNewJumps = true;
+                                }
+                            }
+
+                            if (_pendingJumpEvt != null)
+                            {
+                                var evt = _pendingJumpEvt;
+                                _pendingJumpEvt = null;
+                                LastActivityTime = DateTime.Now;
+                                EventsCaptured++;
+                                if (ApplyEventToProfile(evt, isInit))
+                                {
+                                    hasNewJumps = true;
+                                }
+                                OnConsoleEvent?.Invoke(evt);
                             }
 
                             _lastFilePosition = fs.Position;
                             _initialScanComplete = true;
+
+                            UserProfile.Instance.LastLogPosition = _lastFilePosition;
+                            UserProfile.Instance.LastLogLength = fs.Length;
+
+                            if (hasNewJumps)
+                            {
+                                UserProfile.Save();
+                            }
                         }
                     }
                 }
@@ -221,11 +292,12 @@ namespace LJTrainer.Core
             return line.TrimStart();
         }
 
-        private static void ParseLine(string rawLine, bool isInitialScan)
+        private static bool ParseLine(string rawLine, bool isInitialScan)
         {
-            if (string.IsNullOrWhiteSpace(rawLine)) return;
+            if (string.IsNullOrWhiteSpace(rawLine)) return false;
 
             string line = StripTimestamp(rawLine);
+            bool jumpAdded = false;
 
             // 1. Map Change
             var mMap = MapChangePattern.Match(line);
@@ -236,7 +308,7 @@ namespace LJTrainer.Core
                 var evt = new CS2ConsoleEvent { RawLine = rawLine, IsMapChange = true, MapName = CurrentMap };
                 EventsCaptured++;
                 OnConsoleEvent?.Invoke(evt);
-                return;
+                return false;
             }
 
             // 2. Jump line 1 ("issushenij jumped 269.2057 units (Block: 260) with a Long Jump")
@@ -246,7 +318,10 @@ namespace LJTrainer.Core
                 // If previous jump was waiting and didn't get details, flush it
                 if (_pendingJumpEvt != null)
                 {
-                    ApplyEventToProfile(_pendingJumpEvt, isInitialScan);
+                    if (ApplyEventToProfile(_pendingJumpEvt, isInitialScan))
+                    {
+                        jumpAdded = true;
+                    }
                     OnConsoleEvent?.Invoke(_pendingJumpEvt);
                     _pendingJumpEvt = null;
                 }
@@ -280,7 +355,7 @@ namespace LJTrainer.Core
                     MapName = CurrentMap,
                     Timestamp = DateTime.Now
                 };
-                return; // Wait for immediate next CKZ line with telemetry
+                return jumpAdded; // Wait for immediate next CKZ line with telemetry
             }
 
             // 3. CKZ Telemetry line 2 ("CKZ | 238 Block | 8 Strafes | 55.56% AvgSync...") or ("CKZ | 9 Strafes...")
@@ -315,11 +390,6 @@ namespace LJTrainer.Core
                     evt.RawLine += "\n" + rawLine;
                 }
 
-                if (blockFromCkz > 0)
-                {
-                    evt.BlockDistance = blockFromCkz;
-                }
-
                 evt.Strafes = strafes;
                 evt.Sync = sync;
                 evt.PreSpeed = pre;
@@ -328,10 +398,11 @@ namespace LJTrainer.Core
                 evt.AvgOverlap = overlap;
                 evt.AvgDeadAir = deadAir;
                 if (!string.IsNullOrEmpty(jumpDir)) evt.JumpDirection = jumpDir;
+                if (blockFromCkz > 0 && evt.BlockDistance <= 0) evt.BlockDistance = blockFromCkz;
 
                 _pendingJumpEvt = evt; // Keep pending for Line 3 (Deviation / Airpath details)
                 LastActivityTime = DateTime.Now;
-                return;
+                return jumpAdded;
             }
 
             // 4. CKZ Details line 3 ("-11.51 Deviation | 1.016 Airpath | 43.26% AvgGainEff | 36.61° AvgWidth ...")
@@ -369,7 +440,7 @@ namespace LJTrainer.Core
 
                 _pendingJumpEvt = evt; // Keep pending for per-strafe breakdown table!
                 LastActivityTime = DateTime.Now;
-                return;
+                return jumpAdded;
             }
 
             // 5. Per-strafe breakdown table row (1. 79.98% +18.75 ...)
@@ -402,20 +473,20 @@ namespace LJTrainer.Core
                     WidthDeg = sWidth
                 });
                 LastActivityTime = DateTime.Now;
-                return;
+                return jumpAdded;
             }
 
             // 6. Key / Mouse Sequences & Table Headers
             if (_pendingJumpEvt != null)
             {
                 var mLK = LeftKeyPattern.Match(line);
-                if (mLK.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.LeftKeySequence = mLK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
+                if (mLK.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.LeftKeySequence = mLK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return jumpAdded; }
 
                 var mRK = RightKeyPattern.Match(line);
-                if (mRK.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.RightKeySequence = mRK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
+                if (mRK.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.RightKeySequence = mRK.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return jumpAdded; }
 
                 var mLM = LeftMousePattern.Match(line);
-                if (mLM.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.LeftMouseSequence = mLM.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return; }
+                if (mLM.Success) { _pendingJumpEvt.RawLine += "\n" + rawLine; _pendingJumpEvt.LeftMouseSequence = mLM.Groups[1].Value.Trim(); LastActivityTime = DateTime.Now; return jumpAdded; }
 
                 var mRM = RightMousePattern.Match(line);
                 if (mRM.Success)
@@ -427,9 +498,12 @@ namespace LJTrainer.Core
                     _pendingJumpEvt = null;
                     LastActivityTime = DateTime.Now;
                     EventsCaptured++;
-                    ApplyEventToProfile(evt, isInitialScan);
+                    if (ApplyEventToProfile(evt, isInitialScan))
+                    {
+                        jumpAdded = true;
+                    }
                     OnConsoleEvent?.Invoke(evt);
-                    return;
+                    return jumpAdded;
                 }
 
                 // Any telemetry headers, empty lines or table separators belong to this jump log
@@ -437,7 +511,7 @@ namespace LJTrainer.Core
                 {
                     _pendingJumpEvt.RawLine += "\n" + rawLine;
                     LastActivityTime = DateTime.Now;
-                    return;
+                    return jumpAdded;
                 }
             }
 
@@ -448,7 +522,10 @@ namespace LJTrainer.Core
                 _pendingJumpEvt = null;
                 LastActivityTime = DateTime.Now;
                 EventsCaptured++;
-                ApplyEventToProfile(evt, isInitialScan);
+                if (ApplyEventToProfile(evt, isInitialScan))
+                {
+                    jumpAdded = true;
+                }
                 OnConsoleEvent?.Invoke(evt);
             }
 
@@ -475,9 +552,12 @@ namespace LJTrainer.Core
 
                 LastActivityTime = DateTime.Now;
                 EventsCaptured++;
-                ApplyEventToProfile(evt, isInitialScan);
+                if (ApplyEventToProfile(evt, isInitialScan))
+                {
+                    jumpAdded = true;
+                }
                 OnConsoleEvent?.Invoke(evt);
-                return;
+                return jumpAdded;
             }
 
             // 5. Map Finish
@@ -497,7 +577,7 @@ namespace LJTrainer.Core
                 EventsCaptured++;
                 ApplyEventToProfile(evt, isInitialScan);
                 OnConsoleEvent?.Invoke(evt);
-                return;
+                return false;
             }
 
             // 6. Server Rank / Stats Output (from !stats, !top, !profile in chat)
@@ -509,15 +589,15 @@ namespace LJTrainer.Core
                 UserProfile.Instance.Cybershoke.LastSyncTime = DateTime.Now;
                 UserProfile.Save();
             }
-        }
 
+            return jumpAdded;
+        }
 
         public static bool IsPlayerMatch(string jumpNick, string myNick)
         {
-            if (string.IsNullOrWhiteSpace(jumpNick)) return true; // Generic local output
-            if (string.IsNullOrWhiteSpace(myNick)) return true;
+            if (string.IsNullOrWhiteSpace(jumpNick)) return true;
+            if (string.IsNullOrWhiteSpace(myNick) || myNick == "CS2_Player" || myNick == "Player") return true;
 
-            // Remove typical clan tags: [TAG], {TAG}, (TAG)
             string cleanJump = Regex.Replace(jumpNick, @"^\[.*?\]|\{.*?\}|\(.*?\)", "").Trim();
             string cleanMy = Regex.Replace(myNick, @"^\[.*?\]|\{.*?\}|\(.*?\)", "").Trim();
 
@@ -527,32 +607,41 @@ namespace LJTrainer.Core
             return false;
         }
 
-        private static void ApplyEventToProfile(CS2ConsoleEvent evt, bool isInitialScan)
+        private static bool ApplyEventToProfile(CS2ConsoleEvent evt, bool isInitialScan)
         {
             var prof = UserProfile.Instance;
             var cs = prof.Cybershoke;
 
             if (evt.IsJumpStat && evt.Distance > 140.0f)
             {
-                // Strict player nickname filtering: only process jumps belonging to the local player!
+                string sig = ComputeJumpSignature(evt);
+                if (_knownJumpSignatures.Contains(sig))
+                {
+                    return false;
+                }
+
                 string targetNick = !string.IsNullOrEmpty(cs.CybershokeNick) ? cs.CybershokeNick : DetectedNick;
                 bool isMe = string.IsNullOrEmpty(evt.PlayerNick) || IsPlayerMatch(evt.PlayerNick, targetNick);
 
                 if (isMe)
                 {
+                    if (!string.IsNullOrEmpty(evt.PlayerNick) && (string.IsNullOrEmpty(cs.CybershokeNick) || cs.CybershokeNick == "CS2_Player" || cs.CybershokeNick == "Player"))
+                    {
+                        cs.CybershokeNick = evt.PlayerNick;
+                    }
+
+                    _knownJumpSignatures.Add(sig);
                     bool isPB = cs.ProcessJump(evt, isInitialScan);
 
-                    // Play triumphant PB sound on real-time new PB!
                     if (isPB && !isInitialScan)
                     {
                         AudioEngine.PlayPBSound();
                     }
 
-                    UserProfile.Save();
+                    return true;
                 }
                 else
                 {
-                    // Foreign player on the server — record to foreign jumps counter without touching PBs/averages
                     cs.ForeignJumpsFiltered++;
                 }
             }
@@ -564,60 +653,93 @@ namespace LJTrainer.Core
                 cs.IsLinked = true;
                 cs.LastSyncTime = DateTime.Now;
                 UserProfile.Save();
+                return true;
             }
-        }
 
+            return false;
+        }
 
         public static string FindCS2GameDirectory()
         {
             if (!OperatingSystem.IsWindows()) return "";
-            try
-            {
-                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
-                if (key?.GetValue("SteamPath") is string steamPath)
-                {
-                    steamPath = steamPath.Replace('/', '\\');
-                    string p1 = Path.Combine(steamPath, "steamapps", "common", "Counter-Strike Global Offensive");
-                    if (Directory.Exists(p1)) return p1;
-                }
-            }
-            catch { }
 
+            // 1. Check currently running cs2.exe process path
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
-                if (key?.GetValue("SteamPath") is string steamPath)
+                var procs = System.Diagnostics.Process.GetProcessesByName("cs2");
+                if (procs.Length > 0 && procs[0].MainModule?.FileName is string procPath)
                 {
-                    steamPath = steamPath.Replace('/', '\\');
-                    string vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-                    if (File.Exists(vdfPath))
+                    string? cur = Path.GetDirectoryName(procPath);
+                    while (!string.IsNullOrEmpty(cur))
                     {
-                        foreach (var line in File.ReadAllLines(vdfPath))
+                        if (File.Exists(Path.Combine(cur, "game", "csgo", "console.log")) ||
+                            Directory.Exists(Path.Combine(cur, "game", "csgo")))
                         {
-                            var m = Regex.Match(line, "\"path\"\\s+\"([^\"]+)\"");
-                            if (m.Success)
-                            {
-                                string libPath = m.Groups[1].Value.Replace("\\\\", "\\").Replace('/', '\\');
-                                string cs2Path = Path.Combine(libPath, "steamapps", "common", "Counter-Strike Global Offensive");
-                                if (Directory.Exists(cs2Path)) return cs2Path;
-                            }
+                            return cur;
                         }
+                        cur = Path.GetDirectoryName(cur);
                     }
                 }
             }
             catch { }
 
-            string[] drives = { "C", "D", "E", "F", "G", "W" };
-            foreach (var d in drives)
+            // 2. Check Steam Registry Keys
+            string[] registryPaths = { @"Software\Valve\Steam", @"SOFTWARE\WOW6432Node\Valve\Steam", @"SOFTWARE\Valve\Steam" };
+            foreach (var rPath in registryPaths)
             {
-                string[] paths = {
-                    $@"{d}:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive",
-                    $@"{d}:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive",
-                    $@"{d}:\Steam\steamapps\common\Counter-Strike Global Offensive",
-                };
-                foreach (var p in paths)
-                    if (Directory.Exists(p)) return p;
+                try
+                {
+                    using var key = Registry.CurrentUser.OpenSubKey(rPath) ?? Registry.LocalMachine.OpenSubKey(rPath);
+                    if (key?.GetValue("SteamPath") is string steamPath)
+                    {
+                        steamPath = steamPath.Replace('/', '\\');
+                        string p1 = Path.Combine(steamPath, "steamapps", "common", "Counter-Strike Global Offensive");
+                        if (Directory.Exists(p1)) return p1;
+
+                        string vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+                        if (File.Exists(vdfPath))
+                        {
+                            foreach (var line in File.ReadAllLines(vdfPath))
+                            {
+                                var m = Regex.Match(line, "\"path\"\\s+\"([^\"]+)\"");
+                                if (m.Success)
+                                {
+                                    string libPath = m.Groups[1].Value.Replace("\\\\", "\\").Replace('/', '\\');
+                                    string cs2Path = Path.Combine(libPath, "steamapps", "common", "Counter-Strike Global Offensive");
+                                    if (Directory.Exists(cs2Path)) return cs2Path;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
             }
+
+            // 3. Scan all available drives for standard Steam library folders
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives())
+                {
+                    if (!drive.IsReady) continue;
+                    string d = drive.RootDirectory.FullName.TrimEnd('\\');
+
+                    string[] candidates = {
+                        $@"{d}\SteamLibrary\steamapps\common\Counter-Strike Global Offensive",
+                        $@"{d}\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive",
+                        $@"{d}\Program Files\Steam\steamapps\common\Counter-Strike Global Offensive",
+                        $@"{d}\Steam\steamapps\common\Counter-Strike Global Offensive",
+                        $@"{d}\Games\SteamLibrary\steamapps\common\Counter-Strike Global Offensive",
+                        $@"{d}\Games\Steam\steamapps\common\Counter-Strike Global Offensive",
+                        $@"{d}\SteamGames\steamapps\common\Counter-Strike Global Offensive",
+                    };
+
+                    foreach (var p in candidates)
+                    {
+                        if (Directory.Exists(p)) return p;
+                    }
+                }
+            }
+            catch { }
 
             return "";
         }
@@ -633,10 +755,20 @@ namespace LJTrainer.Core
                 Path.Combine(gameDir, "game", "csgo", "conlog.txt"),
                 Path.Combine(gameDir, "game", "csgo", "console.txt"),
                 Path.Combine(gameDir, "csgo", "console.log"),
+                Path.Combine(gameDir, "csgo", "conlog.txt"),
             };
 
             foreach (var c in candidates)
+            {
                 if (File.Exists(c)) return c;
+            }
+
+            // If game directory exists but console.log not created yet, return expected path
+            string defaultExpected = Path.Combine(gameDir, "game", "csgo", "console.log");
+            if (Directory.Exists(Path.Combine(gameDir, "game", "csgo")))
+            {
+                return defaultExpected;
+            }
 
             return "";
         }

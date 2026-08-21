@@ -45,7 +45,7 @@ namespace LJTrainer.Core
                 }
             }
             catch { }
-            return "v1.1.2";
+            return "v1.1.4";
         }
 
         public static bool IsChecking { get; private set; } = false;
@@ -153,15 +153,30 @@ namespace LJTrainer.Core
         {
             try
             {
-                string r = remoteTag.TrimStart('v', 'V', ' ');
-                string c = currentTag.TrimStart('v', 'V', ' ');
+                if (string.IsNullOrWhiteSpace(remoteTag) || string.IsNullOrWhiteSpace(currentTag)) return false;
 
-                if (Version.TryParse(r, out var vRemote) && Version.TryParse(c, out var vCurrent))
+                string r = remoteTag.Trim().TrimStart('v', 'V').Trim();
+                string c = currentTag.Trim().TrimStart('v', 'V').Trim();
+
+                if (string.Equals(r, c, StringComparison.OrdinalIgnoreCase))
                 {
-                    return vRemote > vCurrent;
+                    return false;
                 }
 
-                return !string.Equals(remoteTag.Trim(), currentTag.Trim(), StringComparison.OrdinalIgnoreCase);
+                var rParts = r.Split(new[] { '.', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+                var cParts = c.Split(new[] { '.', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+                int maxLen = Math.Max(rParts.Length, cParts.Length);
+
+                for (int i = 0; i < maxLen; i++)
+                {
+                    int rNum = (i < rParts.Length && int.TryParse(rParts[i], out int rp)) ? rp : 0;
+                    int cNum = (i < cParts.Length && int.TryParse(cParts[i], out int cp)) ? cp : 0;
+
+                    if (rNum > cNum) return true;
+                    if (rNum < cNum) return false;
+                }
+
+                return false;
             }
             catch
             {
