@@ -45,7 +45,7 @@ namespace LJTrainer.Core
                 }
             }
             catch { }
-            return "v1.1.5";
+            return "v1.1.7";
         }
 
         public static bool IsChecking { get; private set; } = false;

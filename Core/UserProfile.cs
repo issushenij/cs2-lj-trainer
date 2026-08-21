@@ -72,15 +72,21 @@ namespace LJTrainer.Core
                     }
                 }
 
-                // Auto-detect local Steam PersonaName & SteamID if not set or default
+                // Sanitize nickname from any corrupted mojibake
+                Instance.Cybershoke.CybershokeNick = CS2ConfigImporter.SanitizeNick(Instance.Cybershoke.CybershokeNick);
+
+                // Auto-detect local Steam PersonaName & SteamID if not set, default, or was corrupted
                 if (string.IsNullOrEmpty(Instance.Cybershoke.CybershokeNick) || 
                     Instance.Cybershoke.CybershokeNick == "Player" || 
-                    Instance.Cybershoke.CybershokeNick == "CS2_Player")
+                    Instance.Cybershoke.CybershokeNick == "CS2_Player" ||
+                    Instance.Cybershoke.CybershokeNick.Contains("Ð") ||
+                    Instance.Cybershoke.CybershokeNick.Contains("Ñ") ||
+                    Instance.Cybershoke.CybershokeNick.Contains("?"))
                 {
                     string? detectedSteamNick = CS2ConfigImporter.DetectLocalSteamPersonaName();
                     if (!string.IsNullOrEmpty(detectedSteamNick))
                     {
-                        Instance.Cybershoke.CybershokeNick = detectedSteamNick;
+                        Instance.Cybershoke.CybershokeNick = CS2ConfigImporter.SanitizeNick(detectedSteamNick);
                     }
                 }
 

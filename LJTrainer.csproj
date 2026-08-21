@@ -10,10 +10,10 @@
     <ApplicationTitle>CS2 Long Jump &amp; Sync Lab</ApplicationTitle>
     <ApplicationIcon>app_icon.ico</ApplicationIcon>
     <RootNamespace>LJTrainer</RootNamespace>
-    <Version>1.1.5</Version>
-    <AssemblyVersion>1.1.5.0</AssemblyVersion>
-    <FileVersion>1.1.5.0</FileVersion>
-    <InformationalVersion>v1.1.5</InformationalVersion>
+    <Version>1.1.7</Version>
+    <AssemblyVersion>1.1.7.0</AssemblyVersion>
+    <FileVersion>1.1.7.0</FileVersion>
+    <InformationalVersion>v1.1.7</InformationalVersion>
   </PropertyGroup>
 
 

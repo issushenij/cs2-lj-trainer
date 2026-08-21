@@ -25,10 +25,10 @@ namespace LJTrainer.UI
         {
             try
             {
-                // 1. High-precision Technical Display Font (Bahnschrift / Segoe UI Bold / Arial Bold)
-                string displayPath = @"C:\Windows\Fonts\bahnschrift.ttf";
-                if (!File.Exists(displayPath)) displayPath = @"C:\Windows\Fonts\segoeuib.ttf";
+                // 1. High-precision Technical Display Font (Segoe UI Bold / Arial Bold - Complete Unicode & Cyrillic)
+                string displayPath = @"C:\Windows\Fonts\segoeuib.ttf";
                 if (!File.Exists(displayPath)) displayPath = @"C:\Windows\Fonts\arialbd.ttf";
+                if (!File.Exists(displayPath)) displayPath = @"C:\Windows\Fonts\tahomabd.ttf";
 
                 // 2. Monospace Technical Font (Consolas Bold - Data, telemetry, code)
                 string monoPath = @"C:\Windows\Fonts\consolab.ttf";
